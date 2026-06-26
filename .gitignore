@@ -1,0 +1,16 @@
+# Node
+node_modules/
+npm-debug.log*
+
+# Vault runtime data (never commit live data)
+vault/data/
+vault/storage/
+vault/backups/
+
+# App build artifacts
+app/.expo/
+app/node_modules/
+
+# Env / secrets
+.env
+*.env

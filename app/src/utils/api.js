@@ -1,0 +1,366 @@
+let _url = null, _token = null, _name = null, _pic = null;
+const _avatarV = {};
+
+// Append JWT as query param so React Native Image (no custom headers) can access protected media
+const withToken = (url) => {
+  if (!url || !_token) return url;
+  return url.includes('?') ? `${url}&token=${_token}` : `${url}?token=${_token}`;
+};
+
+const addTokenToPost = (p) => ({
+  ...p,
+  imageUrls: (p.imageUrls || []).map(withToken),
+  imageUrl: withToken(p.imageUrl),
+  videoUrl: withToken(p.videoUrl),
+  thumbnailUrl: withToken(p.thumbnailUrl),
+});
+
+const addTokenToStory = (s) => ({ ...s, imageUrl: withToken(s.imageUrl) });
+
+const addTokenToMessage = (m) => ({
+  ...m,
+  imageUrl: withToken(m.imageUrl),
+  videoUrl: withToken(m.videoUrl),
+});
+
+export const setVault = (url, token, name, pic = null) => {
+  _url = url.replace(/\/$/, '');
+  _token = token;
+  _name = name;
+  _pic = pic;
+};
+export const getVaultUrl = () => _url;
+export const getMemberName = () => _name;
+export const getProfilePicUri = () => _pic;
+export const setProfilePicUri = (uri) => { _pic = uri; };
+export const setMemberName = (name) => { _name = name; };
+export const setToken = (token) => { _token = token; };
+
+const h = () => ({ Authorization: `Bearer ${_token}` });
+const jh = () => ({ ...h(), 'Content-Type': 'application/json' });
+
+async function req(url, opts = {}) {
+  let res;
+  try {
+    res = await fetch(url, opts);
+  } catch (e) {
+    throw new Error('Cannot reach vault. Check Wi-Fi and that the server is running.');
+  }
+  let json = {};
+  try { json = await res.json(); } catch { /* non-JSON body */ }
+  if (!res.ok) throw new Error(json.error || `Server error (${res.status})`);
+  return json;
+}
+
+function syncAvatarVersions(members) {
+  for (const m of members) {
+    if (m.name && m.avatarVersion) _avatarV[m.name] = m.avatarVersion;
+  }
+  return members;
+}
+
+// Auth
+export const fetchMembers = (url) =>
+  req(`${url.replace(/\/$/, '')}/members`).then(syncAvatarVersions);
+
+export const joinVault = (url, name, password, inviteCode) =>
+  req(`${url.replace(/\/$/, '')}/join`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, password, inviteCode }),
+  });
+
+export const loginVault = (url, name, password) =>
+  req(`${url.replace(/\/$/, '')}/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, password }),
+  });
+
+// Posts
+export const fetchPosts = () => req(`${_url}/posts`, { headers: h() }).then((posts) => posts.map(addTokenToPost));
+
+export const deletePost = (id) =>
+  req(`${_url}/posts/${id}`, { method: 'DELETE', headers: h() });
+
+export const likePost = (id) =>
+  req(`${_url}/posts/${id}/like`, { method: 'POST', headers: h() });
+
+export const savePost = (id) =>
+  req(`${_url}/posts/${id}/save`, { method: 'POST', headers: h() });
+
+export const addComment = (id, text, gifUrl = null, imageX = null, imageY = null, imageIndex = 0) =>
+  req(`${_url}/posts/${id}/comments`, {
+    method: 'POST',
+    headers: jh(),
+    body: JSON.stringify({ text, gifUrl, imageX, imageY, imageIndex }),
+  });
+
+export const deleteComment = (postId, commentId) =>
+  req(`${_url}/posts/${postId}/comments/${commentId}`, { method: 'DELETE', headers: h() });
+
+// Upload one or more photos as a single post
+export async function uploadPhotos(imageUris, caption = '', collectionId = null) {
+  const uris = Array.isArray(imageUris) ? imageUris : [imageUris];
+  const fd = new FormData();
+  uris.forEach((uri, i) => {
+    fd.append('photos', { uri, type: 'image/jpeg', name: `photo${i}.jpg` });
+  });
+  if (caption) fd.append('caption', caption);
+  const post = await req(`${_url}/posts`, { method: 'POST', headers: h(), body: fd });
+  if (collectionId) await addToCollection(collectionId, post.id).catch(() => {});
+  return addTokenToPost(post);
+}
+
+export async function uploadVideo(videoUri, thumbnailUri = null, caption = '', durationSecs = null, collectionId = null, onProgress = null) {
+  // For small videos, use the regular direct upload
+  let fileSize = 0;
+  try {
+    const FileSystem = require('expo-file-system/legacy');
+    const info = await FileSystem.getInfoAsync(videoUri, { size: true });
+    fileSize = info.size || 0;
+  } catch {}
+
+  const CHUNK_THRESHOLD = 90 * 1024 * 1024; // 90MB — below Cloudflare's 100MB limit
+
+  if (fileSize > CHUNK_THRESHOLD) {
+    return uploadVideoChunked(videoUri, thumbnailUri, caption, durationSecs, collectionId, onProgress, fileSize);
+  }
+
+  const fd = new FormData();
+  const ext = videoUri.split('.').pop()?.toLowerCase() || 'mp4';
+  fd.append('video', { uri: videoUri, type: `video/${ext === 'mov' ? 'quicktime' : ext}`, name: `video.${ext}` });
+  if (thumbnailUri) {
+    fd.append('thumbnail', { uri: thumbnailUri, type: 'image/jpeg', name: 'thumbnail.jpg' });
+  }
+  if (caption) fd.append('caption', caption);
+  if (durationSecs != null) fd.append('durationSecs', String(durationSecs));
+  if (onProgress) onProgress(0.5); // indeterminate for small uploads
+  const post = await req(`${_url}/posts`, { method: 'POST', headers: h(), body: fd });
+  if (collectionId) await addToCollection(collectionId, post.id).catch(() => {});
+  if (onProgress) onProgress(1);
+  return addTokenToPost(post);
+}
+
+// Chunked upload for large videos (>90MB) — bypasses Cloudflare's 100MB request body limit
+async function uploadVideoChunked(videoUri, thumbnailUri, caption, durationSecs, collectionId, onProgress, fileSize) {
+  const FileSystem = require('expo-file-system/legacy');
+  const CHUNK_SIZE = 20 * 1024 * 1024; // 20MB chunks
+  const totalChunks = Math.ceil(fileSize / CHUNK_SIZE);
+  const ext = videoUri.split('.').pop()?.toLowerCase() || 'mp4';
+  const mimeType = `video/${ext === 'mov' ? 'quicktime' : ext}`;
+
+  // 1. Init upload session
+  const { uploadId } = await req(`${_url}/upload/init`, { method: 'POST', headers: jh(), body: '{}' });
+
+  // 2. Upload chunks
+  for (let i = 0; i < totalChunks; i++) {
+    const start = i * CHUNK_SIZE;
+    const length = Math.min(CHUNK_SIZE, fileSize - start);
+
+    // Read chunk as base64 then write to a temp file for FormData
+    const chunkB64 = await FileSystem.readAsStringAsync(videoUri, {
+      encoding: FileSystem.EncodingType.Base64,
+      position: start,
+      length,
+    });
+    const chunkUri = FileSystem.cacheDirectory + `chunk_${uploadId}_${i}`;
+    await FileSystem.writeAsStringAsync(chunkUri, chunkB64, { encoding: FileSystem.EncodingType.Base64 });
+
+    const fd = new FormData();
+    fd.append('chunk', { uri: chunkUri, type: 'application/octet-stream', name: `chunk${i}` });
+    fd.append('uploadId', uploadId);
+    fd.append('chunkIndex', String(i));
+    fd.append('totalChunks', String(totalChunks));
+    await req(`${_url}/upload/chunk`, { method: 'POST', headers: h(), body: fd });
+
+    // Clean up temp chunk file
+    FileSystem.deleteAsync(chunkUri, { idempotent: true }).catch(() => {});
+    if (onProgress) onProgress((i + 1) / (totalChunks + 2)); // +2 for thumbnail + finalize
+  }
+
+  // 3. Upload thumbnail separately (small, always direct)
+  let thumbnailFilename = null;
+  if (thumbnailUri) {
+    const thumbFd = new FormData();
+    thumbFd.append('thumbnail', { uri: thumbnailUri, type: 'image/jpeg', name: 'thumbnail.jpg' });
+    thumbFd.append('uploadId', `thumb-${uploadId}`);
+    thumbFd.append('chunkIndex', '0');
+    thumbFd.append('totalChunks', '1');
+    await req(`${_url}/upload/chunk`, { method: 'POST', headers: h(), body: thumbFd });
+    const thumbResult = await req(`${_url}/upload/finalize`, {
+      method: 'POST', headers: jh(),
+      body: JSON.stringify({ uploadId: `thumb-${uploadId}`, totalChunks: 1, mimeType: 'image/jpeg' }),
+    });
+    thumbnailFilename = thumbResult.filename;
+    if (onProgress) onProgress((totalChunks + 1) / (totalChunks + 2));
+  }
+
+  // 4. Finalize video
+  const { filename: videoFilename } = await req(`${_url}/upload/finalize`, {
+    method: 'POST', headers: jh(),
+    body: JSON.stringify({ uploadId, totalChunks, mimeType }),
+  });
+  if (onProgress) onProgress(1);
+
+  // 5. Create post from uploaded filenames
+  const post = await req(`${_url}/posts/from-upload`, {
+    method: 'POST', headers: jh(),
+    body: JSON.stringify({ videoFilename, thumbnailFilename, caption, durationSecs }),
+  });
+  if (collectionId) await addToCollection(collectionId, post.id).catch(() => {});
+  return addTokenToPost(post);
+}
+
+export async function sendChatMedia(conversationId, uri, mimeType) {
+  const fd = new FormData();
+  const ext = uri.split('.').pop()?.toLowerCase() || 'jpg';
+  fd.append('media', { uri, type: mimeType || `image/${ext}`, name: `media.${ext}` });
+  return req(`${_url}/conversations/${conversationId}/media`, { method: 'POST', headers: h(), body: fd })
+    .then(addTokenToMessage);
+}
+
+// Backward-compat alias
+export const uploadPhoto = (uri, caption, colId) => uploadPhotos([uri], caption, colId);
+
+// Stories
+export const fetchStories = () => req(`${_url}/stories`, { headers: h() }).then((s) => s.map(addTokenToStory));
+
+export const deleteStory = (id) =>
+  req(`${_url}/stories/${id}`, { method: 'DELETE', headers: h() });
+
+export async function uploadStory(imageUri, durationHours, caption = '') {
+  const fd = new FormData();
+  fd.append('photo', { uri: imageUri, type: 'image/jpeg', name: 'story.jpg' });
+  fd.append('durationHours', String(durationHours));
+  if (caption) fd.append('caption', caption);
+  return req(`${_url}/stories`, { method: 'POST', headers: h(), body: fd }).then(addTokenToStory);
+}
+
+// Collections
+export const fetchCollections = () =>
+  req(`${_url}/collections`, { headers: h() })
+  .then((cols) => cols.map((c) => ({ ...c, thumbnailUrl: withToken(c.thumbnailUrl) })));
+
+export const createCollection = (name) =>
+  req(`${_url}/collections`, { method: 'POST', headers: jh(), body: JSON.stringify({ name }) });
+
+export const deleteCollection = (id) =>
+  req(`${_url}/collections/${id}`, { method: 'DELETE', headers: h() });
+
+export const fetchCollectionPosts = (id) =>
+  req(`${_url}/collections/${id}/posts`, { headers: h() }).then((posts) => posts.map(addTokenToPost));
+
+export const addToCollection = (colId, postId) =>
+  req(`${_url}/collections/${colId}/posts`, {
+    method: 'POST',
+    headers: jh(),
+    body: JSON.stringify({ postId }),
+  });
+
+export const removeFromCollection = (colId, postId) =>
+  req(`${_url}/collections/${colId}/posts/${postId}`, { method: 'DELETE', headers: h() });
+
+export const addCollectionMember = (colId, memberName) =>
+  req(`${_url}/collections/${colId}/members`, { method: 'POST', headers: jh(), body: JSON.stringify({ memberName }) });
+
+export const removeCollectionMember = (colId, memberName) =>
+  req(`${_url}/collections/${colId}/members/${encodeURIComponent(memberName)}`, { method: 'DELETE', headers: h() });
+
+// Stories — views and reactions
+export const viewStory = (id) =>
+  req(`${_url}/stories/${id}/view`, { method: 'POST', headers: h() });
+
+export const reactToStory = (id, emoji) =>
+  req(`${_url}/stories/${id}/reactions`, {
+    method: 'POST', headers: jh(), body: JSON.stringify({ emoji }),
+  });
+
+export const fetchStoryViewers = (id) =>
+  req(`${_url}/stories/${id}/viewers`, { headers: h() });
+
+// Profile
+export const updateProfile = ({ newName, currentPassword, newPassword }) =>
+  req(`${_url}/members/me`, {
+    method: 'PATCH',
+    headers: jh(),
+    body: JSON.stringify({ newName, currentPassword, newPassword }),
+  });
+
+export const uploadAvatar = async (uri) => {
+  const fd = new FormData();
+  fd.append('avatar', { uri, type: 'image/jpeg', name: 'avatar.jpg' });
+  const result = await req(`${_url}/members/me/avatar`, { method: 'POST', headers: h(), body: fd });
+  // Use server-returned version so ALL clients pick up the same cache-buster
+  _avatarV[_name] = result.avatarVersion || Date.now();
+  return result;
+};
+
+export const renameAvatarCache = (oldName, newName) => {
+  _avatarV[newName] = _avatarV[oldName] || Date.now();
+  delete _avatarV[oldName];
+};
+
+export const deleteAvatar = () => {
+  _avatarV[_name] = Date.now(); // bump version so cached old avatar is evicted
+  return req(`${_url}/members/me/avatar`, { method: 'DELETE', headers: h() });
+};
+
+export const getAvatarUrl = (name) => {
+  if (!name || !_url) return null;
+  const v = _avatarV[name];
+  const base = `${_url}/members/${encodeURIComponent(name)}/avatar`;
+  const params = [v ? `v=${v}` : '', _token ? `token=${_token}` : ''].filter(Boolean).join('&');
+  return params ? `${base}?${params}` : base;
+};
+
+// Messaging
+export const fetchFamilyMembers = () =>
+  req(`${_url}/members`, { headers: h() }).then(syncAvatarVersions);
+
+export const fetchConversations = () =>
+  req(`${_url}/conversations`, { headers: h() });
+
+export const createConversation = (name, memberNames = []) =>
+  req(`${_url}/conversations`, {
+    method: 'POST', headers: jh(), body: JSON.stringify({ name, memberNames }),
+  });
+
+export const startDM = (targetMember) =>
+  req(`${_url}/conversations/dm`, {
+    method: 'POST', headers: jh(), body: JSON.stringify({ targetMember }),
+  });
+
+export const deleteConversation = (id) =>
+  req(`${_url}/conversations/${id}`, { method: 'DELETE', headers: h() });
+
+export const addConversationMember = (id, memberName) =>
+  req(`${_url}/conversations/${id}/members`, { method: 'POST', headers: jh(), body: JSON.stringify({ memberName }) });
+
+export const removeConversationMember = (id, memberName) =>
+  req(`${_url}/conversations/${id}/members/${encodeURIComponent(memberName)}`, { method: 'DELETE', headers: h() });
+
+export const fetchMessages = (conversationId) =>
+  req(`${_url}/conversations/${conversationId}/messages`, { headers: h() }).then((msgs) => msgs.map(addTokenToMessage));
+
+export const sendMessage = (conversationId, text, gifUrl = null, replyToId = null, postRef = null) =>
+  req(`${_url}/conversations/${conversationId}/messages`, {
+    method: 'POST', headers: jh(), body: JSON.stringify({ text, gifUrl, replyToId, postRef }),
+  });
+
+export const reactToMessage = (conversationId, messageId, emoji) =>
+  req(`${_url}/conversations/${conversationId}/messages/${messageId}/react`, {
+    method: 'POST', headers: jh(), body: JSON.stringify({ emoji }),
+  });
+
+export const markConversationRead = (conversationId) =>
+  req(`${_url}/conversations/${conversationId}/read`, { method: 'POST', headers: h() });
+
+export const deleteChatMessage = (conversationId, messageId) =>
+  req(`${_url}/conversations/${conversationId}/messages/${messageId}`, { method: 'DELETE', headers: h() });
+
+export const searchGifs = (q) =>
+  req(`${_url}/gif/search?q=${encodeURIComponent(q)}`, { headers: h() });
+
+export const likeDaily = (id) =>
+  req(`${_url}/stories/${id}/like`, { method: 'POST', headers: h() });
