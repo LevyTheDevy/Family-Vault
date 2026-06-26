@@ -8,8 +8,9 @@ const { JWT_SECRET } = require('./auth');
 
 const router = express.Router();
 
+const { STORAGE_DIR } = require('../config');
 const mediaStorage = multer.diskStorage({
-  destination: path.join(__dirname, '../../storage'),
+  destination: STORAGE_DIR,
   filename: (_, file, cb) => {
     const ext = path.extname(file.originalname) || (file.mimetype.startsWith('video') ? '.mp4' : '.jpg');
     cb(null, `${Date.now()}-${crypto.randomBytes(8).toString('hex')}${ext}`);

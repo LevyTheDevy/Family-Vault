@@ -6,6 +6,7 @@
     "start": "node src/index.js"
   },
   "dependencies": {
+    "archiver": "^7.0.1",
     "cors": "^2.8.5",
     "express": "^4.18.0",
     "jsonwebtoken": "^9.0.0",

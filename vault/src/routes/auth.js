@@ -8,8 +8,8 @@ const db = require('../db/sqlite');
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'familyvault-poc-secret';
 
-const AVATAR_DIR = path.join(__dirname, '../../storage/avatars');
-fs.mkdirSync(AVATAR_DIR, { recursive: true });
+const { STORAGE_DIR } = require('../config');
+const AVATAR_DIR = path.join(STORAGE_DIR, 'avatars');
 
 function safeName(name) { return name.replace(/[^a-zA-Z0-9]/g, '_'); }
 

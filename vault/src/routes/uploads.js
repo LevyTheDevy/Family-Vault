@@ -7,8 +7,8 @@ const crypto = require('crypto');
 const { JWT_SECRET } = require('./auth');
 
 const router = express.Router();
-const STORAGE_DIR = path.join(__dirname, '../../storage');
-const CHUNKS_DIR = path.join(__dirname, '../../storage/.chunks');
+const { STORAGE_DIR } = require('../config');
+const CHUNKS_DIR = path.join(STORAGE_DIR, '.chunks');
 fs.mkdirSync(CHUNKS_DIR, { recursive: true });
 
 function auth(req, res, next) {

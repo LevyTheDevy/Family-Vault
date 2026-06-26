@@ -8,8 +8,9 @@ const { JWT_SECRET } = require('./auth');
 
 const router = express.Router();
 
+const { STORAGE_DIR } = require('../config');
 const storage = multer.diskStorage({
-  destination: path.join(__dirname, '../../storage'),
+  destination: STORAGE_DIR,
   filename: (_, file, cb) => cb(null, `story-${Date.now()}-${crypto.randomBytes(8).toString('hex')}${path.extname(file.originalname) || '.jpg'}`),
 });
 const upload = multer({

@@ -2,9 +2,8 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
-const DATA_DIR = path.join(__dirname, '../../data');
+const { DATA_DIR } = require('../config');
 const DB_FILE = path.join(DATA_DIR, 'db.json');
-fs.mkdirSync(DATA_DIR, { recursive: true });
 
 const generateCode = () => crypto.randomBytes(3).toString('hex').toUpperCase();
 
@@ -792,6 +791,17 @@ const db = {
     if (!col) throw new Error('Collection not found');
     col.postIds = col.postIds.filter((id) => id !== postId);
     save(data);
+  },
+
+  getStats() {
+    const data = load();
+    const now = Date.now();
+    return {
+      memberCount: (data.members || []).length,
+      postCount: (data.posts || []).length,
+      activeStoryCount: (data.stories || []).filter((s) => new Date(s.expiresAt).getTime() > now).length,
+      messageCount: (data.messages || []).length,
+    };
   },
 
   getCollectionPosts(colId, memberName) {

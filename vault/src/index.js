@@ -6,7 +6,8 @@ const os = require('os');
 const { exec } = require('child_process');
 const https = require('https');
 
-fs.mkdirSync(path.join(__dirname, '../storage'), { recursive: true });
+const { STORAGE_DIR, VAULT_NAME } = require('./config');
+fs.mkdirSync(STORAGE_DIR, { recursive: true });
 
 const authRoutes = require('./routes/auth');
 const postsRoutes = require('./routes/posts');
@@ -33,7 +34,7 @@ app.get('/storage/:filename', (req, res) => {
     jwt.verify((req.headers.authorization || req.query.token || '').replace('Bearer ', ''), JWT_SECRET);
   } catch { return res.status(401).end(); }
   const safeName = path.basename(req.params.filename);
-  res.sendFile(path.join(__dirname, '../storage', safeName));
+  res.sendFile(path.join(STORAGE_DIR, safeName));
 });
 
 // Admin dashboard + API (before auth routes so /admin/* takes priority)
@@ -48,7 +49,7 @@ app.use(messagesRoutes);
 app.use(gifRoutes);
 app.use(uploadsRoutes);
 
-app.get('/health', (req, res) => res.json({ status: 'ok' }));
+app.get('/health', (req, res) => res.json({ status: 'ok', vaultName: VAULT_NAME }));
 
 // Purge expired stories from DB and disk every hour
 function purgeExpiredStories() {

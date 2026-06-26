@@ -9,8 +9,9 @@ const { JWT_SECRET } = require('./auth');
 
 const router = express.Router();
 
+const { STORAGE_DIR } = require('../config');
 const storage = multer.diskStorage({
-  destination: path.join(__dirname, '../../storage'),
+  destination: STORAGE_DIR,
   filename: (_, file, cb) => {
     const ext = path.extname(file.originalname) || (file.mimetype.startsWith('video') ? '.mp4' : '.jpg');
     cb(null, `${Date.now()}-${crypto.randomBytes(8).toString('hex')}${ext}`);
@@ -89,8 +90,7 @@ router.post('/posts/from-upload', auth, (req, res) => {
   // Sanitize — must be a simple filename, no path traversal
   const safeVideo = path.basename(videoFilename);
   const safeThumb = thumbnailFilename ? path.basename(thumbnailFilename) : null;
-  const storageDir = path.join(__dirname, '../../storage');
-  if (!fs.existsSync(path.join(storageDir, safeVideo))) {
+  if (!fs.existsSync(path.join(STORAGE_DIR, safeVideo))) {
     return res.status(400).json({ error: 'Uploaded file not found' });
   }
   const post = db.insertPost([], req.member.name, caption || '', 'video', safeVideo, safeThumb, durationSecs ? Number(durationSecs) : null);
@@ -101,7 +101,7 @@ router.delete('/posts/:id', auth, (req, res) => {
   try {
     const filenames = db.deletePost(Number(req.params.id), req.member.name);
     for (const fn of filenames) {
-      const filePath = path.join(__dirname, '../../storage', fn);
+      const filePath = path.join(STORAGE_DIR, fn);
       if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
     }
     res.json({ ok: true });
