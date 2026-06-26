@@ -269,45 +269,6 @@ router.post('/admin/api/backup/run', requireAdmin, async (req, res) => {
   }
 });
 
-// Download a fresh backup zip directly (streamed, not saved to disk)
-router.get('/admin/api/backup/download', requireAdmin, async (req, res) => {
-  let archiver;
-  try { archiver = require('archiver'); } catch {
-    return res.status(500).json({ error: 'archiver package not installed — run npm install in vault/' });
-  }
-
-  const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-  const filename = `familyvault-backup-${timestamp}.zip`;
-  res.setHeader('Content-Type', 'application/zip');
-  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-
-  const archive = archiver('zip', { zlib: { level: 5 } });
-  archive.on('error', (err) => { console.error('[backup] stream error:', err.message); });
-  archive.pipe(res);
-
-  const dbFile = path.join(DATA_DIR, 'db.json');
-  if (fs.existsSync(dbFile)) archive.file(dbFile, { name: 'db.json' });
-
-  if (fs.existsSync(STORAGE_DIR)) {
-    archive.directory(STORAGE_DIR, 'storage', (data) => {
-      const parts = data.name.split(/[/\\]/);
-      if (parts[0] === '.chunks') return false;
-      return data;
-    });
-  }
-
-  await archive.finalize();
-});
-
-// Download a previously saved backup file
-router.get('/admin/api/backups/:name', requireAdmin, (req, res) => {
-  const safeName = path.basename(req.params.name);
-  if (!safeName.endsWith('.zip')) return res.status(400).json({ error: 'Invalid filename' });
-  const filePath = path.join(BACKUP_DIR, safeName);
-  if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Backup not found' });
-  res.download(filePath, safeName);
-});
-
 router.delete('/admin/api/backups/:name', requireAdmin, (req, res) => {
   const safeName = path.basename(req.params.name);
   if (!safeName.endsWith('.zip')) return res.status(400).json({ error: 'Invalid filename' });
@@ -322,6 +283,7 @@ router.delete('/admin/api/backups/:name', requireAdmin, (req, res) => {
 router.get('/admin', (req, res) => res.send(adminPage()));
 
 function adminPage() {
+  const BACKUP_DIR_HINT = BACKUP_DIR;
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -501,10 +463,7 @@ body{background:#000;color:#fff;font-family:-apple-system,BlinkMacSystemFont,'Se
     <div>
       <div class="section-head">
         <span class="section-title">Backups</span>
-        <div style="display:flex;gap:8px;flex-wrap:wrap">
-          <button class="btn btn-outline btn-sm" onclick="runBackupNow(this)">Save to Server</button>
-          <button class="btn btn-sm" onclick="downloadBackupNow()">↓ Download Now</button>
-        </div>
+        <button class="btn btn-sm" onclick="runBackupNow(this)">Save to Server</button>
       </div>
       <div class="backup-card">
         <div class="backup-sched">
@@ -723,23 +682,15 @@ function renderBackups(backups) {
             <td style="font-family:monospace;font-size:11px">\${esc(b.name)}</td>
             <td>\${fmtBytes(b.size)}</td>
             <td style="white-space:nowrap">\${new Date(b.createdAt).toLocaleString()}</td>
-            <td style="display:flex;gap:6px;justify-content:flex-end">
-              <button class="btn btn-outline btn-xs" onclick="downloadSavedBackup('\${esc(b.name)}')">↓</button>
+            <td style="text-align:right">
               <button class="btn btn-danger btn-xs" onclick="deleteBackup('\${esc(b.name)}')">✕</button>
             </td>
           </tr>
         \`).join('')}
       </tbody>
     </table>
+    <div style="font-size:11px;color:#333;margin-top:10px">Backups are stored on the server. Access them via SSH at: \${BACKUP_DIR_HINT}</div>
   \`;
-}
-
-function downloadBackupNow() {
-  window.location.href = api + '/admin/api/backup/download?token=' + encodeURIComponent(TOKEN);
-}
-
-function downloadSavedBackup(name) {
-  window.location.href = api + '/admin/api/backups/' + encodeURIComponent(name) + '?token=' + encodeURIComponent(TOKEN);
 }
 
 async function runBackupNow(btn) {
