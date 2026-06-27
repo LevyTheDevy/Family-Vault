@@ -25,7 +25,8 @@ function auth(req, res, next) {
 }
 
 function withImageUrl(req, story) {
-  const base = `${req.protocol}://${req.get('host')}`;
+  const proto = req.headers['x-forwarded-proto'] || req.protocol;
+  const base = `${proto}://${req.get('host')}`;
   return { ...story, imageUrl: `${base}/storage/${story.filename}` };
 }
 

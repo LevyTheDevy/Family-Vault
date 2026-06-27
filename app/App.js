@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, ActivityIndicator, StyleSheet, ImageBackground } from 'react-native';
+import { View, Text, Image, ActivityIndicator, StyleSheet, ImageBackground } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -22,11 +22,13 @@ import StoryViewScreen from './src/screens/StoryViewScreen';
 import StoryCreateScreen from './src/screens/StoryCreateScreen';
 
 import * as FileSystem from 'expo-file-system/legacy';
-import { loadAuth } from './src/utils/storage';
-import { setVault } from './src/utils/api';
 import { ThemeProvider, useTheme } from './src/context/ThemeContext';
 import { UnreadProvider, useUnread } from './src/context/UnreadContext';
 import { ToastProvider } from './src/context/ToastContext';
+import { VaultProvider, useVault } from './src/context/VaultContext';
+import { VaultSwitcherButton, NotificationBell } from './src/components/VaultSwitcher';
+import ResetPasswordScreen from './src/screens/ResetPasswordScreen';
+import { navigationRef } from './src/utils/navigation';
 
 const RootStack = createStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -40,16 +42,33 @@ function makeHeader(colors) {
     headerStyle: { backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: colors.border },
     headerTintColor: colors.text,
     headerTitleStyle: { fontWeight: '600', fontSize: 16 },
-    // transparent when bg image is active so the wallpaper shows through
     cardStyle: { backgroundColor: colors.screenBg },
   };
+}
+
+function HeaderLogo() {
+  return (
+    <Image
+      source={require('./assets/logo_app.png')}
+      style={styles.headerLogo}
+      resizeMode="contain"
+    />
+  );
 }
 
 function FeedStackScreen() {
   const { colors } = useTheme();
   return (
     <FeedStack.Navigator screenOptions={makeHeader(colors)}>
-      <FeedStack.Screen name="FeedMain" component={FeedScreen} options={{ title: 'Family Vault' }} />
+      <FeedStack.Screen
+          name="FeedMain"
+          component={FeedScreen}
+          options={{
+            headerLeft: () => <HeaderLogo />,
+            headerTitle: () => <VaultSwitcherButton />,
+            headerRight: () => <NotificationBell />,
+          }}
+        />
       <FeedStack.Screen name="Post" component={PostScreen} options={{ title: 'New Post' }} />
       <FeedStack.Screen name="StoryCreate" component={StoryCreateScreen} options={{ headerShown: false }} />
     </FeedStack.Navigator>
@@ -60,7 +79,7 @@ function CollectionStackScreen() {
   const { colors } = useTheme();
   return (
     <CollectionStack.Navigator screenOptions={makeHeader(colors)}>
-      <CollectionStack.Screen name="CollectionList" component={CollectionsScreen} options={{ title: 'Collections' }} />
+      <CollectionStack.Screen name="CollectionList" component={CollectionsScreen} options={{ title: 'Collections', headerLeft: () => <HeaderLogo /> }} />
       <CollectionStack.Screen name="CollectionDetail" component={CollectionDetailScreen} options={{ title: '' }} />
       <CollectionStack.Screen name="OfflineCollection" component={OfflineCollectionScreen} options={{ title: 'Offline' }} />
     </CollectionStack.Navigator>
@@ -71,7 +90,7 @@ function MessagesStackScreen() {
   const { colors } = useTheme();
   return (
     <MessagesStack.Navigator screenOptions={makeHeader(colors)}>
-      <MessagesStack.Screen name="ConversationList" component={MessagesScreen} options={{ title: 'Messages' }} />
+      <MessagesStack.Screen name="ConversationList" component={MessagesScreen} options={{ title: 'Messages', headerLeft: () => <HeaderLogo /> }} />
       <MessagesStack.Screen name="Chat" component={ChatScreen} options={({ route }) => ({ title: route.params.conversation.name })} />
     </MessagesStack.Navigator>
   );
@@ -81,7 +100,7 @@ function SettingsStackScreen() {
   const { colors } = useTheme();
   return (
     <SettingsStack.Navigator screenOptions={makeHeader(colors)}>
-      <SettingsStack.Screen name="SettingsMain" component={SettingsScreen} options={{ title: 'Settings' }} />
+      <SettingsStack.Screen name="SettingsMain" component={SettingsScreen} options={{ title: 'Settings', headerLeft: () => <HeaderLogo /> }} />
       <SettingsStack.Screen name="Theme" component={ThemeScreen} options={{ title: 'Appearance' }} />
     </SettingsStack.Navigator>
   );
@@ -161,21 +180,13 @@ function MainTabs() {
 function AppInner() {
   const [initialRoute, setInitialRoute] = useState(null);
   const { colors, bgImageUri, isLight } = useTheme();
+  const { vaults, ready } = useVault();
 
   useEffect(() => {
-    // Purge the image cache on startup to remove any corrupt/partial files
-    // from previously interrupted downloads. Fresh files will be re-fetched.
+    if (!ready) return;
     FileSystem.deleteAsync(FileSystem.cacheDirectory + 'fv/', { idempotent: true }).catch(() => {});
-
-    loadAuth().then((auth) => {
-      if (auth) {
-        setVault(auth.vaultUrl, auth.token, auth.name, auth.profilePicUri);
-        setInitialRoute('Main');
-      } else {
-        setInitialRoute('Scan');
-      }
-    });
-  }, []);
+    setInitialRoute(vaults.length > 0 ? 'Main' : 'Scan');
+  }, [ready]);
 
   if (!initialRoute) {
     return (
@@ -207,11 +218,12 @@ function AppInner() {
           <View style={[StyleSheet.absoluteFillObject, { backgroundColor: glassColor }]} pointerEvents="none" />
         </>
       )}
-      <NavigationContainer theme={navTheme}>
+      <NavigationContainer ref={navigationRef} theme={navTheme}>
         <RootStack.Navigator initialRouteName={initialRoute} screenOptions={makeHeader(colors)}>
           <RootStack.Screen name="Scan" component={ScanScreen} options={{ headerShown: false }} />
           <RootStack.Screen name="Auth" component={AuthScreen} options={{ headerShown: false }} />
           <RootStack.Screen name="Main" component={MainTabs} options={{ headerShown: false }} />
+          <RootStack.Screen name="ResetPassword" component={ResetPasswordScreen} options={{ headerShown: false }} />
           <RootStack.Screen
             name="StoryView"
             component={StoryViewScreen}
@@ -228,11 +240,13 @@ export default function App() {
     <SafeAreaProvider>
       <GestureHandlerRootView style={styles.root}>
         <ThemeProvider>
-          <UnreadProvider>
-            <ToastProvider>
-              <AppInner />
-            </ToastProvider>
-          </UnreadProvider>
+          <VaultProvider>
+            <UnreadProvider>
+              <ToastProvider>
+                <AppInner />
+              </ToastProvider>
+            </UnreadProvider>
+          </VaultProvider>
         </ThemeProvider>
       </GestureHandlerRootView>
     </SafeAreaProvider>
@@ -242,10 +256,17 @@ export default function App() {
 const styles = StyleSheet.create({
   root: { flex: 1 },
   loading: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  headerLogo: {
+    width: 24, height: 24, borderRadius: 6, marginLeft: 14,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.18, shadowRadius: 4, elevation: 4,
+  },
   plusCircle: {
     width: 50, height: 50, borderRadius: 25,
     alignItems: 'center', justifyContent: 'center',
     marginBottom: 14,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.22, shadowRadius: 5, elevation: 5,
   },
   plusText: { fontSize: 28, fontWeight: '300', lineHeight: 30, marginTop: -2 },
 });

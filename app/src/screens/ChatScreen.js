@@ -53,6 +53,18 @@ function insertDateSeparators(messages) {
   return result;
 }
 
+function ReadReceipt({ allRead, someSeen, accentColor, mutedColor }) {
+  const color = allRead ? accentColor : mutedColor;
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', marginLeft: 2 }}>
+      <Feather name="check" size={11} color={color} />
+      {(someSeen || allRead) && (
+        <Feather name="check" size={11} color={color} style={{ marginLeft: -5 }} />
+      )}
+    </View>
+  );
+}
+
 // Swipeable message row — swipe right to reply
 function SwipeRow({ onReply, children }) {
   const translateX = useRef(new Animated.Value(0)).current;
@@ -267,7 +279,7 @@ export default function ChatScreen({ route, navigation }) {
     return <View style={[styles.center, { backgroundColor: colors.screenBg }]}><ActivityIndicator color={colors.text} /></View>;
   }
 
-  const bubbleMeColor = isLight ? '#007aff' : colors.bubbleMe;
+  const bubbleMeColor = colors.accent;
   const bubbleMeText = '#ffffff';
   const bubbleOtherColor = colors.bubble;
   const bubbleOtherText = colors.bubbleText;
@@ -417,21 +429,15 @@ export default function ChatScreen({ route, navigation }) {
                       {item.text ? (
                         <Text style={[styles.bubbleText, { color: txtColor }]}>{item.text}</Text>
                       ) : null}
-
-                      <View style={[styles.bubbleFooter, !item.text && item.imageUrl ? styles.bubbleFooterOverlay : null]}>
-                        <Text style={[styles.bubbleTime, { color: isMe ? 'rgba(255,255,255,0.65)' : `${bubbleOtherText}80` }]}>
-                          {fmt(item.createdAt)}
-                        </Text>
-                        {isMe && (
-                          <Text style={{ fontSize: 11, color: allRead ? '#60e080' : 'rgba(255,255,255,0.5)', marginLeft: 2 }}>
-                            {allRead ? '✓✓' : someSeen ? '✓✓' : '✓'}
-                          </Text>
-                        )}
-                      </View>
                     </View>
                   </TouchableOpacity>
                 </View>
               </SwipeRow>
+
+              <View style={[styles.msgMeta, isMe ? styles.msgMetaMe : styles.msgMetaOther]}>
+                <Text style={[styles.metaTime, { color: colors.textSub }]}>{fmt(item.createdAt)}</Text>
+                {isMe && <ReadReceipt allRead={allRead} someSeen={someSeen} accentColor={colors.accent} mutedColor={colors.textSub} />}
+              </View>
 
               {/* Reaction pills */}
               {reactionEntries.length > 0 && (
@@ -654,9 +660,10 @@ const styles = StyleSheet.create({
   bubble: { borderRadius: 18, paddingHorizontal: 13, paddingVertical: 8, maxWidth: '100%', overflow: 'hidden' },
   bubbleAuthor: { fontSize: 11, fontWeight: '700', marginBottom: 2 },
   bubbleText: { fontSize: 15, lineHeight: 21 },
-  bubbleFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 3, marginTop: 3 },
-  bubbleFooterOverlay: { position: 'absolute', bottom: 6, right: 8, backgroundColor: 'rgba(0,0,0,0.35)', borderRadius: 10, paddingHorizontal: 5, paddingVertical: 2 },
-  bubbleTime: { fontSize: 10 },
+  msgMeta: { flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 2, marginBottom: 1 },
+  msgMetaMe: { justifyContent: 'flex-end', paddingRight: 4 },
+  msgMetaOther: { justifyContent: 'flex-start', paddingLeft: 36 },
+  metaTime: { fontSize: 10 },
 
   msgMedia: { width: 200, height: 150, borderRadius: 12, marginBottom: 2, backgroundColor: '#111' },
   msgVidPlay: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.35)' },

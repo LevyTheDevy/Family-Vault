@@ -12,19 +12,28 @@ import { Feather } from '@expo/vector-icons';
 //   https://fam-vault.com          (plain vault URL, no code)
 function parseCode(raw) {
   const s = raw.trim();
-  // Match host/CODE where host can be domain or IP:port
-  const inviteMatch = s.match(/^(?:(https?):\/\/)?([^/?#]+)\/([A-Fa-f0-9]{6})$/i);
+  // Match host/CODE where host can be domain or IP:port (with optional ?vk= param)
+  const inviteMatch = s.match(/^(?:(https?):\/\/)?([^/?#]+)\/([A-Fa-f0-9]{6})([?#].*)?$/i);
   if (inviteMatch) {
-    const [, proto, host, code] = inviteMatch;
+    const [, proto, host, code, query = ''] = inviteMatch;
     const scheme = proto || (host.includes(':') ? 'http' : 'https');
-    return { vaultUrl: `${scheme}://${host}`, inviteCode: code.toUpperCase() };
+    const vk = new URLSearchParams(query.replace(/^[?#]/, '')).get('vk') || null;
+    return { vaultUrl: `${scheme}://${host}`, inviteCode: code.toUpperCase(), accessKey: vk };
   }
-  // Plain vault URL (no code)
+  // Plain vault URL (no invite code) — may include ?vk=
   const url = s.startsWith('http') ? s : (s.includes(':') ? `http://${s}` : `https://${s}`);
-  return { vaultUrl: url, inviteCode: null };
+  try {
+    const parsed = new URL(url);
+    const vk = parsed.searchParams.get('vk') || null;
+    parsed.search = '';
+    return { vaultUrl: parsed.toString().replace(/\/$/, ''), inviteCode: null, accessKey: vk };
+  } catch {
+    return { vaultUrl: url, inviteCode: null, accessKey: null };
+  }
 }
 
-export default function ScanScreen({ navigation }) {
+export default function ScanScreen({ navigation, route }) {
+  const addMode = route.params?.addMode ?? false;
   const [tab, setTab] = useState('scan'); // 'scan' | 'code'
   const [permission, requestPermission] = useCameraPermissions();
   const [scanned, setScanned] = useState(false);
@@ -32,8 +41,8 @@ export default function ScanScreen({ navigation }) {
   const [manualError, setManualError] = useState('');
 
   const proceed = (raw) => {
-    const { vaultUrl, inviteCode } = parseCode(raw);
-    navigation.navigate('Auth', { vaultUrl, inviteCode });
+    const { vaultUrl, inviteCode, accessKey } = parseCode(raw);
+    navigation.navigate('Auth', { vaultUrl, inviteCode, addMode, accessKey });
   };
 
   const handleBarCodeScanned = ({ data }) => {
@@ -60,7 +69,7 @@ export default function ScanScreen({ navigation }) {
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.title}>FamilyVault</Text>
-        <Text style={styles.subtitle}>Connect to your vault</Text>
+        <Text style={styles.subtitle}>{addMode ? 'Connect another vault' : 'Connect to your vault'}</Text>
       </View>
 
       {/* Tab switcher */}

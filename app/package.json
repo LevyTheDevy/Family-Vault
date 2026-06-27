@@ -33,6 +33,7 @@
     "tweetnacl-util": "^0.15.1"
   },
   "devDependencies": {
-    "@babel/core": "^7.20.0"
+    "@babel/core": "^7.20.0",
+    "jimp": "^1.6.1"
   }
 }

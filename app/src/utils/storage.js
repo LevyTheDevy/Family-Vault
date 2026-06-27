@@ -1,5 +1,5 @@
 import * as SecureStore from 'expo-secure-store';
-import { setVault } from './api';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const KEYS = {
   vaultUrl: 'fv_vault_url',
@@ -25,7 +25,17 @@ export async function loadAuth() {
 }
 
 export async function clearAuth() {
-  await Promise.all(Object.values(KEYS).map((k) => SecureStore.deleteItemAsync(k)));
+  // Clear old single-vault SecureStore keys
+  await Promise.all(Object.values(KEYS).map((k) => SecureStore.deleteItemAsync(k).catch(() => {})));
+  // Clear new multi-vault storage
+  try {
+    const raw = await AsyncStorage.getItem('fv_vaults');
+    const count = raw ? JSON.parse(raw).length : 0;
+    await AsyncStorage.multiRemove(['fv_vaults', 'fv_active_vault']);
+    for (let i = 0; i < count; i++) {
+      await SecureStore.deleteItemAsync(`fv_tok_${i}`).catch(() => {});
+    }
+  } catch {}
 }
 
 export async function updateStoredProfile({ name, token, profilePicUri }) {

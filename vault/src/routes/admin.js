@@ -6,7 +6,7 @@ const path = require('path');
 const fs = require('fs');
 const db = require('../db/sqlite');
 const { JWT_SECRET } = require('./auth');
-const { STORAGE_DIR, BACKUP_DIR, DATA_DIR, VAULT_NAME } = require('../config');
+const { STORAGE_DIR, BACKUP_DIR, DATA_DIR, VAULT_NAME, VAULT_ACCESS_KEY } = require('../config');
 
 const AVATAR_DIR = path.join(STORAGE_DIR, 'avatars');
 const BACKUP_SETTINGS_FILE = path.join(DATA_DIR, 'backup-settings.json');
@@ -165,7 +165,7 @@ router.post('/admin/api/setup', adminRateLimit, (req, res) => {
   if (String(password).length < 8) return res.status(400).json({ error: 'Admin password must be at least 8 characters' });
   try {
     db.createAdmin(name.trim(), password);
-    const token = jwt.sign({ role: 'admin', name: name.trim() }, JWT_SECRET, { expiresIn: '30d' });
+    const token = jwt.sign({ role: 'admin', name: name.trim() }, JWT_SECRET, { expiresIn: '7d' });
     res.json({ token, name: name.trim() });
   } catch (e) { res.status(409).json({ error: e.message }); }
 });
@@ -175,7 +175,7 @@ router.post('/admin/api/login', adminRateLimit, (req, res) => {
   if (!name || !password) return res.status(400).json({ error: 'Name and password required' });
   const admin = db.verifyAdmin(name, password);
   if (!admin) return res.status(401).json({ error: 'Incorrect name or password' });
-  const token = jwt.sign({ role: 'admin', name: admin.name }, JWT_SECRET, { expiresIn: '30d' });
+  const token = jwt.sign({ role: 'admin', name: admin.name }, JWT_SECRET, { expiresIn: '7d' });
   res.json({ token, name: admin.name });
 });
 
@@ -183,7 +183,8 @@ const PUBLIC_URL = (process.env.PUBLIC_URL || '').replace(/\/$/, '');
 
 router.get('/admin/api/vault-qr', requireAdmin, async (req, res) => {
   const localUrl = `http://${getLocalIp()}:${PORT}`;
-  const externalUrl = PUBLIC_URL || localUrl;
+  const externalBase = PUBLIC_URL || localUrl;
+  const externalUrl = `${externalBase}?vk=${VAULT_ACCESS_KEY}`;
   const qr = await QRCode.toDataURL(externalUrl, { width: 300, margin: 2, color: { dark: '#000', light: '#fff' } });
   res.json({ qr, localUrl, externalUrl });
 });
@@ -195,11 +196,25 @@ router.get('/admin/api/stats', requireAdmin, (req, res) => {
 });
 
 router.get('/admin/api/members', requireAdmin, (req, res) => {
-  const members = db.getMembers().map((m) => {
+  const members = db.getMembersAdmin().map((m) => {
     const hasAvatar = fs.existsSync(path.join(AVATAR_DIR, `${m.name.replace(/[^a-zA-Z0-9]/g, '_')}.jpg`));
-    return { id: m.id, name: m.name, createdAt: m.createdAt, hasAvatar };
+    return { ...m, hasAvatar };
   });
   res.json(members);
+});
+
+router.get('/admin/api/reset-requests', requireAdmin, (req, res) => {
+  res.json(db.getResetRequests());
+});
+
+router.post('/admin/api/members/:name/set-temp-password', requireAdmin, (req, res) => {
+  const { tempPassword } = req.body;
+  if (!tempPassword || String(tempPassword).length < 4)
+    return res.status(400).json({ error: 'Temp password must be at least 4 characters' });
+  try {
+    db.setTempPassword(req.params.name, String(tempPassword));
+    res.json({ ok: true });
+  } catch (e) { res.status(404).json({ error: e.message }); }
 });
 
 router.delete('/admin/api/members/:name', requireAdmin, (req, res) => {
@@ -524,6 +539,23 @@ body{background:#000;color:#fff;font-family:-apple-system,BlinkMacSystemFont,'Se
   </div>
 </div>
 
+<!-- Set temp password modal -->
+<div id="m-temppass" class="modal-backdrop hidden" onclick="hideTempPass(event)">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-title">Set Temporary Password</div>
+    <div id="temppass-hint" class="modal-hint" style="text-align:left;color:#555"></div>
+    <div class="field">
+      <label>Temporary Password</label>
+      <input id="temppass-input" type="text" placeholder="e.g. Family2024Reset" autocomplete="off">
+    </div>
+    <div id="temppass-err" class="err hidden"></div>
+    <div class="modal-foot">
+      <button class="btn btn-outline" onclick="hideTempPass()">Cancel</button>
+      <button class="btn" id="temppass-btn" onclick="doSetTempPass()">Set &amp; Tell Them</button>
+    </div>
+  </div>
+</div>
+
 <!-- QR modal -->
 <div id="m-qr" class="modal-backdrop hidden" onclick="hideQr(event)">
   <div class="modal" onclick="event.stopPropagation()">
@@ -733,12 +765,42 @@ function renderMembers(members) {
     <div class="member-chip">
       <div class="member-avatar">\${m.name[0].toUpperCase()}</div>
       <div class="member-info">
-        <div class="member-name">\${esc(m.name)}</div>
-        <div class="member-date">Joined \${m.createdAt ? new Date(m.createdAt).toLocaleDateString() : '—'}</div>
+        <div class="member-name">\${esc(m.name)}\${m.resetRequested ? ' <span class="badge badge-revoked" style="font-size:10px;vertical-align:middle">Reset requested</span>' : ''}</div>
+        <div class="member-date">Joined \${m.createdAt ? new Date(m.createdAt).toLocaleDateString() : '—'}\${m.hasTempPassword ? ' · Temp password active' : ''}</div>
       </div>
+      <button class="btn btn-outline btn-sm" onclick="showSetTempPass('\${esc(m.name)}')" title="Set a temporary password for this member">Temp Pass</button>
       <button class="btn btn-danger btn-sm" onclick="removeMember('\${esc(m.name)}')">Remove</button>
     </div>
   \`).join('');
+}
+
+let tempPassTarget = null;
+function showSetTempPass(name) {
+  tempPassTarget = name;
+  document.getElementById('temppass-input').value = '';
+  document.getElementById('temppass-hint').textContent = 'Set a temporary password for ' + name + '. They sign in with it once, then must create a new password.';
+  setErr('temppass-err', '');
+  document.getElementById('temppass-btn').disabled = false;
+  show('m-temppass');
+  setTimeout(() => document.getElementById('temppass-input').focus(), 50);
+}
+function hideTempPass(e) {
+  if (!e || e.target === document.getElementById('m-temppass')) hide('m-temppass');
+}
+async function doSetTempPass() {
+  const btn = document.getElementById('temppass-btn');
+  const pw = document.getElementById('temppass-input').value.trim();
+  if (!pw || pw.length < 4) { setErr('temppass-err', 'Must be at least 4 characters'); return; }
+  btn.disabled = true; setErr('temppass-err', '');
+  try {
+    await apiFetch(\`/admin/api/members/\${encodeURIComponent(tempPassTarget)}/set-temp-password\`, {
+      method: 'POST', body: JSON.stringify({ tempPassword: pw }),
+    });
+    hide('m-temppass');
+    alert('Temp password set for ' + tempPassTarget + '.\\n\\nTell them to sign in with:\\n' + pw + '\\n\\nThey will be prompted to set a new password immediately.');
+    const members = await apiFetch('/admin/api/members');
+    renderMembers(members);
+  } catch (e) { setErr('temppass-err', e.message); btn.disabled = false; }
 }
 
 async function removeMember(name) {

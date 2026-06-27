@@ -17,7 +17,8 @@ function thumbUrl(base, post) {
 }
 
 function withBase(req, post) {
-  const base = `${req.protocol}://${req.get('host')}`;
+  const proto = req.headers['x-forwarded-proto'] || req.protocol;
+  const base = `${proto}://${req.get('host')}`;
   const filenames = post.filenames || (post.filename ? [post.filename] : []);
   const imageUrls = filenames.map((f) => `${base}/storage/${f}`);
   return { ...post, imageUrls, imageUrl: imageUrls[0] || null };
@@ -25,7 +26,8 @@ function withBase(req, post) {
 
 // GET /collections — only collections the user is a member of or created
 router.get('/collections', auth, (req, res) => {
-  const base = `${req.protocol}://${req.get('host')}`;
+  const proto = req.headers['x-forwarded-proto'] || req.protocol;
+  const base = `${proto}://${req.get('host')}`;
   const me = req.member.name;
   const collections = db.getCollections(me).map((c) => {
     const existingPosts = c.postIds.map((id) => db.getPostById(id)).filter(Boolean);

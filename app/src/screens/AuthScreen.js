@@ -8,6 +8,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
 import { setVault } from '../utils/api';
 import { saveAuth } from '../utils/storage';
+import { useVault } from '../context/VaultContext';
 
 const BASE_URL = (url) => url.replace(/\/$/, '');
 
@@ -19,8 +20,9 @@ async function apiFetch(url, options = {}) {
 }
 
 export default function AuthScreen({ route, navigation }) {
-  const { vaultUrl, inviteCode: prefilledInvite } = route.params;
+  const { vaultUrl, inviteCode: prefilledInvite, addMode = false, accessKey = null } = route.params;
   const base = BASE_URL(vaultUrl);
+  const { initFirstVault, addVault: addVaultCtx } = useVault();
 
   // If an invite code was passed in (from vault code), start on join tab
   const [mode, setMode] = useState(prefilledInvite ? 'join' : 'signin');
@@ -41,15 +43,63 @@ export default function AuthScreen({ route, navigation }) {
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    apiFetch(`${base}/members`)
+    apiFetch(`${base}/members`, accessKey ? { headers: { 'x-vault-key': accessKey } } : {})
       .then((data) => { setMembers(data); setLoadingMembers(false); })
       .catch((e) => { setVaultError(`Cannot reach vault\n${vaultUrl}\n\n${e.message}`); setLoadingMembers(false); });
   }, []);
 
-  const onSuccess = async (token, name, picUri) => {
+  const onSuccess = async (token, name, picUri, requiresPasswordReset = false) => {
+    let vaultName = 'Family Vault';
+    try {
+      const controller = new AbortController();
+      const tid = setTimeout(() => controller.abort(), 5000);
+      const r = await fetch(`${base}/health`, { signal: controller.signal });
+      clearTimeout(tid);
+      vaultName = (await r.json()).vaultName || 'Family Vault';
+    } catch {}
+
     setVault(base, token, name, picUri);
-    await saveAuth({ vaultUrl: base, token, name, profilePicUri: picUri });
-    navigation.reset({ index: 0, routes: [{ name: 'Main' }] });
+
+    if (addMode) {
+      await addVaultCtx({ vaultUrl: base, token, name, vaultName, accessKey });
+    } else {
+      await initFirstVault({ vaultUrl: base, token, name, vaultName, accessKey });
+      await saveAuth({ vaultUrl: base, token, name, profilePicUri: picUri });
+    }
+
+    if (requiresPasswordReset) {
+      navigation.replace('ResetPassword');
+    } else {
+      navigation.reset({ index: 0, routes: [{ name: 'Main' }] });
+    }
+  };
+
+  const handleForgotPassword = () => {
+    if (!selectedMember) {
+      Alert.alert('Select your name first', 'Tap your name from the list, then tap "Forgot password?"');
+      return;
+    }
+    Alert.alert(
+      'Forgot password?',
+      `Send a reset request to the admin for "${selectedMember}"?\n\nThey will set a temporary password you can sign in with.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Send Request', onPress: async () => {
+            try {
+              await apiFetch(`${base}/request-reset`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: selectedMember }),
+              });
+              Alert.alert('Request sent', 'Ask your admin to set a temporary password for you, then sign in with it.');
+            } catch (e) {
+              Alert.alert('Error', e.message);
+            }
+          },
+        },
+      ],
+    );
   };
 
   const handleSignIn = async () => {
@@ -62,7 +112,7 @@ export default function AuthScreen({ route, navigation }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: selectedMember, password: signinPassword }),
       });
-      await onSuccess(data.token, data.name, null);
+      await onSuccess(data.token, data.name, null, data.requiresPasswordReset || false);
     } catch (e) {
       Alert.alert('Sign in failed', e.message);
     } finally {
@@ -73,7 +123,7 @@ export default function AuthScreen({ route, navigation }) {
   const handleJoin = async () => {
     if (!inviteCode.trim()) return Alert.alert('Invite code required', 'Enter the invite code from your admin.');
     if (!fullName.trim()) return Alert.alert('Name required', 'Enter your full name.');
-    if (!joinPassword) return Alert.alert('Password required', 'Choose a password for your account.');
+    if (!joinPassword || joinPassword.length < 8) return Alert.alert('Password too short', 'Password must be at least 8 characters.');
     setSubmitting(true);
     try {
       const data = await apiFetch(`${base}/join`, {
@@ -198,6 +248,9 @@ export default function AuthScreen({ route, navigation }) {
                 onChangeText={setSigninPassword}
                 autoCapitalize="none"
               />
+              <TouchableOpacity onPress={handleForgotPassword} style={styles.forgotRow}>
+                <Text style={styles.forgotText}>Forgot password?</Text>
+              </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.primaryButton, (submitting || !selectedMember) && styles.buttonDisabled]}
                 onPress={handleSignIn}
@@ -331,6 +384,8 @@ const styles = StyleSheet.create({
   avatarButtons: { flexDirection: 'row', gap: 10 },
   smallButton: { borderWidth: 1, borderColor: '#222', borderRadius: 7, paddingVertical: 8, paddingHorizontal: 18 },
   smallButtonText: { color: '#fff', fontSize: 13 },
+  forgotRow: { alignSelf: 'flex-end', marginTop: -2, marginBottom: 4 },
+  forgotText: { color: '#555', fontSize: 12 },
   primaryButton: {
     backgroundColor: '#fff', borderRadius: 8,
     paddingVertical: 15, alignItems: 'center', marginTop: 10,

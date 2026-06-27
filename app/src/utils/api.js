@@ -1,10 +1,31 @@
 let _url = null, _token = null, _name = null, _pic = null;
 const _avatarV = {};
 
+// Rebase a server-returned URL to use the client's connected base (_url).
+// Fixes Cloudflare Tunnel stripping https: the server sees http internally but
+// the client must request over https.
+const _rebaseCache = new Map();
+const rebase = (url) => {
+  if (!url || !_url) return url;
+  if (url.startsWith('/')) return `${_url}${url}`;
+  const cached = _rebaseCache.get(url);
+  if (cached) return cached;
+  try {
+    const parsed = new URL(url);
+    const base = new URL(_url);
+    parsed.protocol = base.protocol;
+    parsed.host = base.host;
+    const result = parsed.toString();
+    _rebaseCache.set(url, result);
+    return result;
+  } catch { return url; }
+};
+
 // Append JWT as query param so React Native Image (no custom headers) can access protected media
 const withToken = (url) => {
   if (!url || !_token) return url;
-  return url.includes('?') ? `${url}&token=${_token}` : `${url}?token=${_token}`;
+  const u = rebase(url);
+  return u.includes('?') ? `${u}&token=${_token}` : `${u}?token=${_token}`;
 };
 
 const addTokenToPost = (p) => ({
@@ -28,6 +49,7 @@ export const setVault = (url, token, name, pic = null) => {
   _token = token;
   _name = name;
   _pic = pic;
+  _rebaseCache.clear();
 };
 export const getVaultUrl = () => _url;
 export const getMemberName = () => _name;
@@ -35,6 +57,7 @@ export const getProfilePicUri = () => _pic;
 export const setProfilePicUri = (uri) => { _pic = uri; };
 export const setMemberName = (name) => { _name = name; };
 export const setToken = (token) => { _token = token; };
+export const getToken = () => _token;
 
 const h = () => ({ Authorization: `Bearer ${_token}` });
 const jh = () => ({ ...h(), 'Content-Type': 'application/json' });
@@ -78,7 +101,13 @@ export const loginVault = (url, name, password) =>
   });
 
 // Posts
-export const fetchPosts = () => req(`${_url}/posts`, { headers: h() }).then((posts) => posts.map(addTokenToPost));
+export const fetchPosts = ({ limit = 20, offset = 0 } = {}) =>
+  req(`${_url}/posts?limit=${limit}&offset=${offset}`, { headers: h() })
+  .then(({ posts, total }) => ({
+    posts: posts.map(addTokenToPost),
+    total,
+    hasMore: offset + posts.length < total,
+  }));
 
 export const deletePost = (id) =>
   req(`${_url}/posts/${id}`, { method: 'DELETE', headers: h() });

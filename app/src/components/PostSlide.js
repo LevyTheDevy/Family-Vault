@@ -28,8 +28,8 @@ function timeAgo(iso) {
   return `${Math.floor(s / 86400)}d ago`;
 }
 
-export default function PostSlide({
-  post: initialPost, height, onDeleted, onCommentPress,
+function PostSlide({
+  post: initialPost, height, isActive = false, onDeleted, onCommentPress,
   collectionId, onRemovedFromCollection,
 }) {
   const { colors } = useTheme();
@@ -63,6 +63,12 @@ export default function PostSlide({
   const slideHeight = height || windowHeight;
 
   React.useEffect(() => { setPost(initialPost); }, [initialPost]);
+
+  // Pause video when scrolled off screen, resume when scrolled back
+  useEffect(() => {
+    if (!post.videoUrl) return;
+    setIsPlaying(isActive);
+  }, [isActive]);
 
   useEffect(() => {
     const screenH = Dimensions.get('screen').height;
@@ -508,3 +514,5 @@ const styles = StyleSheet.create({
   collectionName: { fontSize: 15 },
   collectionCount: { fontSize: 13 },
 });
+
+export default React.memo(PostSlide);

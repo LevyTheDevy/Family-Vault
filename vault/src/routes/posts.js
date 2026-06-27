@@ -37,7 +37,8 @@ function auth(req, res, next) {
 }
 
 function withBase(req, post) {
-  const base = `${req.protocol}://${req.get('host')}`;
+  const proto = req.headers['x-forwarded-proto'] || req.protocol;
+  const base = `${proto}://${req.get('host')}`;
   const filenames = post.filenames || (post.filename ? [post.filename] : []);
   const imageUrls = filenames.map((f) => `${base}/storage/${f}`);
   const videoUrl = post.videoFilename ? `${base}/storage/${post.videoFilename}` : null;
@@ -46,7 +47,10 @@ function withBase(req, post) {
 }
 
 router.get('/posts', auth, (req, res) => {
-  res.json(db.getPosts(req.member.name).map((p) => withBase(req, p)));
+  const limit = Math.min(Math.max(parseInt(req.query.limit) || 20, 1), 50);
+  const offset = Math.max(parseInt(req.query.offset) || 0, 0);
+  const { posts, total } = db.getPosts(req.member.name, { limit, offset });
+  res.json({ posts: posts.map((p) => withBase(req, p)), total, offset, limit });
 });
 
 router.post('/posts', auth, uploadFields, (req, res) => {

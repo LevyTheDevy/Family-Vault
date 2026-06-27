@@ -6,9 +6,10 @@ const fs = require('fs');
 const db = require('../db/sqlite');
 
 const router = express.Router();
-const JWT_SECRET = process.env.JWT_SECRET || 'familyvault-poc-secret';
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) throw new Error('JWT_SECRET env var is not set — refusing to start. Generate one with: node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"');
 
-const { STORAGE_DIR } = require('../config');
+const { STORAGE_DIR, VAULT_ACCESS_KEY } = require('../config');
 const AVATAR_DIR = path.join(STORAGE_DIR, 'avatars');
 
 function safeName(name) { return name.replace(/[^a-zA-Z0-9]/g, '_'); }
@@ -47,8 +48,12 @@ function auth(req, res, next) {
 }
 
 router.get('/members', (req, res) => {
-  // db.getMembers() already returns { id, name, avatarVersion }
-  res.json(db.getMembers());
+  const key = req.headers['x-vault-key'] || req.query.vk;
+  if (key === VAULT_ACCESS_KEY) return res.json(db.getMembers());
+  // Also accept a valid JWT so authenticated in-app screens can list members
+  const token = (req.headers.authorization || '').replace('Bearer ', '');
+  try { jwt.verify(token, JWT_SECRET); return res.json(db.getMembers()); } catch {}
+  res.status(401).json({ error: 'Invalid vault key' });
 });
 
 router.post('/join', rateLimited, (req, res) => {
@@ -56,12 +61,12 @@ router.post('/join', rateLimited, (req, res) => {
   if (!name || !password || !inviteCode) return res.status(400).json({ error: 'Name, password, and invite code are required' });
   const trimName = String(name).trim();
   if (trimName.length < 2 || trimName.length > 40) return res.status(400).json({ error: 'Name must be 2–40 characters' });
-  if (String(password).length < 4) return res.status(400).json({ error: 'Password must be at least 4 characters' });
+  if (String(password).length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
   if (!db.checkInviteCode(inviteCode)) return res.status(403).json({ error: 'Invalid or already-used invite code' });
   try {
     const member = db.insertMember(trimName, password);
     db.markInviteLinkUsed(String(inviteCode).trim().toUpperCase(), trimName);
-    const token = jwt.sign({ id: member.id, name: member.name }, JWT_SECRET, { expiresIn: '30d' });
+    const token = jwt.sign({ id: member.id, name: member.name }, JWT_SECRET, { expiresIn: '7d' });
     res.json({ token, name: member.name });
   } catch (e) {
     res.status(409).json({ error: e.message });
@@ -71,10 +76,29 @@ router.post('/join', rateLimited, (req, res) => {
 router.post('/login', rateLimited, (req, res) => {
   const { name, password } = req.body;
   if (!name || !password) return res.status(400).json({ error: 'Name and password are required' });
-  const member = db.verifyMember(String(name).trim(), password);
+  const member = db.loginMember(String(name).trim(), password);
   if (!member) return res.status(401).json({ error: 'Incorrect name or password' });
-  const token = jwt.sign({ id: member.id, name: member.name }, JWT_SECRET, { expiresIn: '30d' });
-  res.json({ token, name: member.name });
+  const token = jwt.sign({ id: member.id, name: member.name }, JWT_SECRET, { expiresIn: '7d' });
+  res.json({ token, name: member.name, requiresPasswordReset: member.requiresPasswordReset || false });
+});
+
+router.post('/request-reset', rateLimited, (req, res) => {
+  const { name } = req.body;
+  if (!name) return res.status(400).json({ error: 'Name required' });
+  try {
+    db.requestPasswordReset(String(name).trim());
+    res.json({ ok: true });
+  } catch (e) { res.status(404).json({ error: e.message }); }
+});
+
+router.post('/change-password', auth, (req, res) => {
+  const { newPassword } = req.body;
+  if (!newPassword) return res.status(400).json({ error: 'New password required' });
+  try {
+    db.confirmPasswordReset(req.member.name, String(newPassword));
+    const token = jwt.sign({ id: req.member.id, name: req.member.name }, JWT_SECRET, { expiresIn: '7d' });
+    res.json({ ok: true, token });
+  } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
 router.patch('/members/me', auth, (req, res) => {
@@ -94,7 +118,7 @@ router.patch('/members/me', auth, (req, res) => {
       const newFile = path.join(AVATAR_DIR, `${safeName(updated.name)}.jpg`);
       try { if (fs.existsSync(oldFile)) fs.renameSync(oldFile, newFile); } catch {}
     }
-    const token = jwt.sign({ id: updated.id, name: updated.name }, JWT_SECRET, { expiresIn: '30d' });
+    const token = jwt.sign({ id: updated.id, name: updated.name }, JWT_SECRET, { expiresIn: '7d' });
     res.json({ token, name: updated.name });
   } catch (e) {
     res.status(400).json({ error: e.message });

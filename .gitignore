@@ -4,8 +4,13 @@ npm-debug.log*
 
 # Vault runtime data (never commit live data)
 vault/data/
+vault/data2/
 vault/storage/
+vault/storage2/
 vault/backups/
+
+# Local tooling config
+.claude/
 
 # App build artifacts
 app/.expo/

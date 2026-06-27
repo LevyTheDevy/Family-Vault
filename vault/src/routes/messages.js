@@ -86,7 +86,8 @@ router.post('/conversations/:id/media', auth, (req, res) => {
   uploadMedia(req, res, (err) => {
     if (err) return res.status(400).json({ error: err.message });
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
-    const base = `${req.protocol}://${req.get('host')}`;
+    const proto = req.headers['x-forwarded-proto'] || req.protocol;
+    const base = `${proto}://${req.get('host')}`;
     const isVideo = req.file.mimetype.startsWith('video');
     const url = `${base}/storage/${req.file.filename}`;
     try {

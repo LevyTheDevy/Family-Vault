@@ -22,6 +22,7 @@ const db = require('./db/sqlite');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+app.set('trust proxy', true); // trust Cloudflare/reverse-proxy X-Forwarded-For so req.ip is the real client IP
 app.use(cors({ origin: (origin, cb) => cb(null, true), credentials: true }));
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: false, limit: '1mb' }));
