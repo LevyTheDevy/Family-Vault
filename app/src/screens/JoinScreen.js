@@ -100,7 +100,7 @@ export default function JoinScreen({ route, navigation }) {
         await deriveAndStoreVaultKey(kdfSalt, wrappedVaultKey, password);
       }
 
-      const result = await apiFetch(`${base}/auth/join`, {
+      const result = await apiFetch(`${base}/join`, {
         method: 'POST',
         body: JSON.stringify({
           name: name.trim(),
