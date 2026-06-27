@@ -2,8 +2,8 @@ services:
   vault:
     build: .
     ports:
-      - "3000:3000"              # App API — accessible on LAN and via Cloudflare tunnel
-      - "3001:3001"              # Admin panel — LAN only (Cloudflare only tunnels 3000)
+      - "3000:3000"
+      - "3001:3001"
     environment:
       - PUBLIC_URL=${PUBLIC_URL:-}
     volumes:
@@ -11,6 +11,15 @@ services:
       - vault-storage:/storage
       - vault-backups:/backups
     restart: unless-stopped
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TOKEN}
+    restart: unless-stopped
+    depends_on:
+      - vault
+    profiles:
+      - tunnel
 
 volumes:
   vault-data:
