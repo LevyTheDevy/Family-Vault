@@ -14,14 +14,34 @@ if ! docker info >/dev/null 2>&1; then
     exit 1
 fi
 
-# Detect LAN IP — try hostname -I first (Linux), fall back to ifconfig (Mac)
+# Prefer 'docker compose' (V2); fall back to 'docker-compose' (V1)
+if docker compose version >/dev/null 2>&1; then
+    COMPOSE="docker compose"
+elif docker-compose version >/dev/null 2>&1; then
+    COMPOSE="docker-compose"
+else
+    echo " Docker Compose not found. Please install Docker Desktop or the docker-compose-plugin."
+    exit 1
+fi
+
+# Detect LAN IP
+#   Linux: hostname -I returns space-separated IPs, first one is LAN
+#   Mac:   hostname -I doesn't exist; use ipconfig getifaddr or ifconfig
 LAN_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+
 if [ -z "$LAN_IP" ]; then
-    LAN_IP=$(ifconfig 2>/dev/null | grep 'inet ' | grep -v '127.0.0.1' | awk '{print $2}' | head -1)
+    # macOS: try the primary interface first
+    LAN_IP=$(ipconfig getifaddr en0 2>/dev/null)
+fi
+if [ -z "$LAN_IP" ]; then
+    LAN_IP=$(ipconfig getifaddr en1 2>/dev/null)
+fi
+if [ -z "$LAN_IP" ]; then
+    LAN_IP=$(ifconfig 2>/dev/null | awk '/inet / && $2 != "127.0.0.1" {print $2; exit}')
 fi
 
 if [ -z "$LAN_IP" ]; then
-    echo " Could not detect your LAN IP address."
+    echo " Could not detect your LAN IP address automatically."
     printf " Please enter it manually (e.g. 192.168.1.100): "
     read -r LAN_IP
 fi
@@ -34,7 +54,7 @@ printf "PUBLIC_URL=http://%s:3000\n" "$LAN_IP" > .env
 
 # Start (or rebuild) the server
 echo " Starting FamilyVault..."
-docker compose up -d --build
+$COMPOSE up -d --build
 
 echo ""
 echo " FamilyVault is running!"

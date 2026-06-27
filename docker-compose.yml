@@ -9,8 +9,10 @@ services:
     volumes:
       - vault-data:/data
       - vault-storage:/storage
+      - vault-backups:/backups
     restart: unless-stopped
 
 volumes:
   vault-data:
   vault-storage:
+  vault-backups:

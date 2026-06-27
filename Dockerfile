@@ -12,12 +12,13 @@ COPY --from=builder /build/node_modules ./node_modules
 COPY vault/src ./src
 COPY vault/package.json ./
 
-RUN mkdir -p /data /storage/avatars
+RUN mkdir -p /data /storage/avatars /backups
 
-EXPOSE 3000
+EXPOSE 3000 3001
 
 ENV NODE_ENV=production
 ENV DATA_DIR=/data
 ENV STORAGE_DIR=/storage
+ENV BACKUP_DIR=/backups
 
 CMD ["node", "src/index.js"]
