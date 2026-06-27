@@ -1,9 +1,10 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import * as FileSystem from 'expo-file-system/legacy';
 import { setVault } from '../utils/api';
 import { loadAuth } from '../utils/storage';
+import { unwrapVaultKey } from '../utils/crypto';
 
 const VaultContext = createContext({});
 export const useVault = () => useContext(VaultContext);
@@ -51,6 +52,9 @@ export function VaultProvider({ children }) {
   const [vaults, setVaults] = useState([]);   // [{ vaultUrl, name, vaultName, accessKey }]
   const [activeIndex, setActiveIndex] = useState(0);
   const [ready, setReady] = useState(false);
+  // vault_key is held in memory only — never persisted to disk
+  // It's a Uint8Array(32) derived from the user's password on each login
+  const vaultKeyRef = useRef(null);
 
   useEffect(() => {
     initVaults().then(() => setReady(true));
@@ -155,7 +159,23 @@ export function VaultProvider({ children }) {
     await AsyncStorage.multiRemove([VAULTS_KEY, ACTIVE_KEY]);
     setVaults([]);
     setActiveIndex(0);
+    vaultKeyRef.current = null;
     purgeMediaCache();
+  }
+
+  /** Called after login/join when the server returns kdfSalt + wrappedVaultKey */
+  async function deriveAndStoreVaultKey(kdfSalt, wrappedVaultKey, password) {
+    if (!kdfSalt || !wrappedVaultKey || !password) return;
+    try {
+      vaultKeyRef.current = await unwrapVaultKey(kdfSalt, wrappedVaultKey, password);
+    } catch (e) {
+      console.warn('[crypto] vault key derivation failed:', e.message);
+    }
+  }
+
+  /** Returns the current in-memory vault key (Uint8Array(32) or null) */
+  function getVaultKey() {
+    return vaultKeyRef.current;
   }
 
   async function removeVault(index) {
@@ -195,6 +215,8 @@ export function VaultProvider({ children }) {
       addVault,
       removeVault,
       disconnectAll,
+      deriveAndStoreVaultKey,
+      getVaultKey,
     }}>
       {children}
     </VaultContext.Provider>

@@ -9,6 +9,7 @@ import * as FileSystem from 'expo-file-system';
 import { setVault } from '../utils/api';
 import { saveAuth } from '../utils/storage';
 import { useVault } from '../context/VaultContext';
+import { unwrapVaultKey } from '../utils/crypto';
 
 function useTheme() {
   const scheme = useColorScheme();
@@ -55,7 +56,7 @@ async function apiFetch(url, options = {}) {
 export default function AuthScreen({ route, navigation }) {
   const { vaultUrl, inviteCode: prefilledInvite, addMode = false, accessKey = null } = route.params;
   const base = BASE_URL(vaultUrl);
-  const { initFirstVault, addVault: addVaultCtx } = useVault();
+  const { initFirstVault, addVault: addVaultCtx, deriveAndStoreVaultKey } = useVault();
   const t = useTheme();
 
   const [mode, setMode] = useState(prefilledInvite ? 'join' : 'signin');
@@ -143,6 +144,10 @@ export default function AuthScreen({ route, navigation }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: selectedMember, password: signinPassword }),
       });
+      // Derive vault key from server-returned crypto params (non-blocking, best-effort)
+      if (data.kdfSalt && data.wrappedVaultKey) {
+        deriveAndStoreVaultKey(data.kdfSalt, data.wrappedVaultKey, signinPassword).catch(() => {});
+      }
       await onSuccess(data.token, data.name, null, data.requiresPasswordReset || false);
     } catch (e) {
       Alert.alert('Sign in failed', e.message);

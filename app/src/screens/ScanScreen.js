@@ -31,21 +31,31 @@ function useTheme() {
 
 function parseCode(raw) {
   const s = raw.trim();
-  const inviteMatch = s.match(/^(?:(https?):\/\/)?([^/?#]+)\/([A-Fa-f0-9]{6})([?#].*)?$/i);
-  if (inviteMatch) {
-    const [, proto, host, code, query = ''] = inviteMatch;
+
+  // New E2E invite: http://host:port/invite/<64-hex-token>
+  const e2eInvite = s.match(/^(https?:\/\/[^/]+)\/invite\/([0-9a-f]{64})$/i);
+  if (e2eInvite) {
+    return { type: 'invite', serverUrl: e2eInvite[1], inviteToken: e2eInvite[2].toLowerCase() };
+  }
+
+  // Legacy 6-char invite code: host/ABCDEF
+  const legacyMatch = s.match(/^(?:(https?):\/\/)?([^/?#]+)\/([A-Fa-f0-9]{6})([?#].*)?$/i);
+  if (legacyMatch) {
+    const [, proto, host, code, query = ''] = legacyMatch;
     const scheme = proto || (host.includes(':') ? 'http' : 'https');
     const vk = new URLSearchParams(query.replace(/^[?#]/, '')).get('vk') || null;
-    return { vaultUrl: `${scheme}://${host}`, inviteCode: code.toUpperCase(), accessKey: vk };
+    return { type: 'vault', vaultUrl: `${scheme}://${host}`, inviteCode: code.toUpperCase(), accessKey: vk };
   }
+
+  // Plain vault URL
   const url = s.startsWith('http') ? s : (s.includes(':') ? `http://${s}` : `https://${s}`);
   try {
     const parsed = new URL(url);
     const vk = parsed.searchParams.get('vk') || null;
     parsed.search = '';
-    return { vaultUrl: parsed.toString().replace(/\/$/, ''), inviteCode: null, accessKey: vk };
+    return { type: 'vault', vaultUrl: parsed.toString().replace(/\/$/, ''), inviteCode: null, accessKey: vk };
   } catch {
-    return { vaultUrl: url, inviteCode: null, accessKey: null };
+    return { type: 'vault', vaultUrl: url, inviteCode: null, accessKey: null };
   }
 }
 
@@ -60,8 +70,12 @@ export default function ScanScreen({ navigation, route }) {
   const s = makeStyles(t);
 
   const proceed = (raw) => {
-    const { vaultUrl, inviteCode, accessKey } = parseCode(raw);
-    navigation.navigate('Auth', { vaultUrl, inviteCode, addMode, accessKey });
+    const parsed = parseCode(raw);
+    if (parsed.type === 'invite') {
+      navigation.navigate('Join', { serverUrl: parsed.serverUrl, inviteToken: parsed.inviteToken });
+    } else {
+      navigation.navigate('Auth', { vaultUrl: parsed.vaultUrl, inviteCode: parsed.inviteCode, addMode, accessKey: parsed.accessKey });
+    }
   };
 
   const handleBarCodeScanned = ({ data }) => {

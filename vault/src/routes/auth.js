@@ -3,10 +3,12 @@ const jwt = require('jsonwebtoken');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const db = require('../db/sqlite');
 
 const router = express.Router();
 const { STORAGE_DIR, VAULT_ACCESS_KEY, JWT_SECRET } = require('../config');
+const { getVaultName } = require('../config');
 const AVATAR_DIR = path.join(STORAGE_DIR, 'avatars');
 
 function safeName(name) { return name.replace(/[^a-zA-Z0-9]/g, '_'); }
@@ -53,18 +55,66 @@ router.get('/members', (req, res) => {
   res.status(401).json({ error: 'Invalid vault key' });
 });
 
+// GET /auth/invite/:token — app fetches invite info before signup (does not consume it)
+router.get('/invite/:token', (req, res) => {
+  const rawToken = req.params.token;
+  if (!/^[0-9a-f]{64}$/i.test(rawToken))
+    return res.status(400).json({ error: 'Invalid invite token format' });
+  const tokenHash = crypto.createHash('sha256').update(Buffer.from(rawToken, 'hex')).digest('hex');
+  const invite = db.getInviteByTokenHash(tokenHash);
+  if (!invite) return res.status(404).json({ error: 'Invite not found, already used, or expired' });
+  res.json({
+    vaultName: getVaultName(),
+    label: invite.label,
+    inviteKdfSalt: invite.inviteKdfSalt,
+    inviteWrappedVaultKey: invite.inviteWrappedVaultKey,
+    expiresAt: invite.expiresAt,
+  });
+});
+
 router.post('/join', rateLimited, (req, res) => {
-  const { name, password, inviteCode } = req.body;
-  if (!name || !password || !inviteCode) return res.status(400).json({ error: 'Name, password, and invite code are required' });
-  const trimName = String(name).trim();
-  if (trimName.length < 2 || trimName.length > 40) return res.status(400).json({ error: 'Name must be 2–40 characters' });
-  if (String(password).length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
-  if (!db.checkInviteCode(inviteCode)) return res.status(403).json({ error: 'Invalid or already-used invite code' });
+  const { name, password, inviteCode, token: rawToken, kdfSalt, wrappedVaultKey } = req.body;
+
+  // Validate identity
+  const trimName = String(name || '').trim();
+  if (trimName.length < 2 || trimName.length > 40)
+    return res.status(400).json({ error: 'Name must be 2–40 characters' });
+  if (!password || String(password).length < 8)
+    return res.status(400).json({ error: 'Password must be at least 8 characters' });
+
+  // Validate invite — support both new crypto tokens and legacy short codes
+  let tokenHash = null;
+  if (rawToken) {
+    if (!/^[0-9a-f]{64}$/i.test(rawToken))
+      return res.status(400).json({ error: 'Invalid invite token' });
+    tokenHash = crypto.createHash('sha256').update(Buffer.from(rawToken, 'hex')).digest('hex');
+    if (!db.getInviteByTokenHash(tokenHash))
+      return res.status(403).json({ error: 'Invite not found, already used, or expired' });
+  } else if (inviteCode) {
+    if (!db.checkInviteCode(inviteCode))
+      return res.status(403).json({ error: 'Invalid or already-used invite code' });
+  } else {
+    return res.status(400).json({ error: 'Invite token or code required' });
+  }
+
   try {
     const member = db.insertMember(trimName, password);
-    db.markInviteLinkUsed(String(inviteCode).trim().toUpperCase(), trimName);
-    const token = jwt.sign({ id: member.id, name: member.name }, JWT_SECRET, { expiresIn: '7d' });
-    res.json({ token, name: member.name });
+
+    if (tokenHash) {
+      if (kdfSalt && wrappedVaultKey) db.setUserCrypto(member.id, kdfSalt, wrappedVaultKey);
+      db.markInviteLinkUsed(tokenHash, trimName);
+    } else {
+      db.markInviteLinkUsed(String(inviteCode).trim().toUpperCase(), trimName);
+    }
+
+    const jwtToken = jwt.sign({ id: member.id, name: member.name }, JWT_SECRET, { expiresIn: '7d' });
+    const userCrypto = db.getUserCrypto(member.id);
+    res.json({
+      token: jwtToken,
+      name: member.name,
+      kdfSalt: userCrypto?.kdfSalt || null,
+      wrappedVaultKey: userCrypto?.wrappedVaultKey || null,
+    });
   } catch (e) {
     res.status(409).json({ error: e.message });
   }
@@ -76,7 +126,14 @@ router.post('/login', rateLimited, (req, res) => {
   const member = db.loginMember(String(name).trim(), password);
   if (!member) return res.status(401).json({ error: 'Incorrect name or password' });
   const token = jwt.sign({ id: member.id, name: member.name }, JWT_SECRET, { expiresIn: '7d' });
-  res.json({ token, name: member.name, requiresPasswordReset: member.requiresPasswordReset || false });
+  const userCrypto = db.getUserCrypto(member.id);
+  res.json({
+    token,
+    name: member.name,
+    requiresPasswordReset: member.requiresPasswordReset || false,
+    kdfSalt: userCrypto?.kdfSalt || null,
+    wrappedVaultKey: userCrypto?.wrappedVaultKey || null,
+  });
 });
 
 router.post('/request-reset', rateLimited, (req, res) => {
@@ -96,6 +153,15 @@ router.post('/change-password', auth, (req, res) => {
     const token = jwt.sign({ id: req.member.id, name: req.member.name }, JWT_SECRET, { expiresIn: '7d' });
     res.json({ ok: true, token });
   } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// Called after a password change to re-wrap vault key with new password
+router.post('/update-crypto', auth, (req, res) => {
+  const { kdfSalt, wrappedVaultKey } = req.body;
+  if (!kdfSalt || !wrappedVaultKey)
+    return res.status(400).json({ error: 'kdfSalt and wrappedVaultKey required' });
+  db.setUserCrypto(req.member.id, kdfSalt, wrappedVaultKey);
+  res.json({ ok: true });
 });
 
 router.patch('/members/me', auth, (req, res) => {

@@ -50,15 +50,28 @@ sql.exec(`
     created_at         TEXT NOT NULL DEFAULT (datetime('now'))
   );
   CREATE TABLE IF NOT EXISTS invite_links (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    code       TEXT NOT NULL UNIQUE,
-    label      TEXT NOT NULL DEFAULT 'Invite',
-    created_by TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    used       INTEGER NOT NULL DEFAULT 0,
-    used_by    TEXT,
-    used_at    TEXT,
-    revoked    INTEGER NOT NULL DEFAULT 0
+    id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+    code                    TEXT NOT NULL UNIQUE,
+    label                   TEXT NOT NULL DEFAULT 'Invite',
+    created_by              TEXT NOT NULL,
+    created_at              TEXT NOT NULL DEFAULT (datetime('now')),
+    used                    INTEGER NOT NULL DEFAULT 0,
+    used_by                 TEXT,
+    used_at                 TEXT,
+    revoked                 INTEGER NOT NULL DEFAULT 0,
+    invite_kdf_salt         TEXT,
+    invite_wrapped_vault_key TEXT,
+    expires_at              TEXT
+  );
+  CREATE TABLE IF NOT EXISTS user_crypto (
+    member_id         INTEGER PRIMARY KEY REFERENCES members(id) ON DELETE CASCADE,
+    kdf_salt          TEXT NOT NULL,
+    wrapped_vault_key TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS vault_crypto (
+    id                INTEGER PRIMARY KEY CHECK(id = 1),
+    kdf_salt          TEXT NOT NULL,
+    wrapped_vault_key TEXT NOT NULL
   );
   CREATE TABLE IF NOT EXISTS posts (
     id                 INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -278,6 +291,15 @@ function migrate() {
 }
 migrate();
 
+// Add crypto columns to existing invite_links tables (no-op if already present)
+for (const colDef of [
+  'invite_kdf_salt TEXT',
+  'invite_wrapped_vault_key TEXT',
+  'expires_at TEXT',
+]) {
+  try { sql.exec(`ALTER TABLE invite_links ADD COLUMN ${colDef}`); } catch {}
+}
+
 // ─── Row normalizers ─────────────────────────────────────────────────────────
 function postExtras(postId) {
   return {
@@ -400,6 +422,7 @@ const db = {
     return sql.prepare('SELECT * FROM invite_links ORDER BY id DESC').all().map(l => ({
       id: l.id, code: l.code, label: l.label, createdBy: l.created_by, createdAt: l.created_at,
       used: !!l.used, usedBy: l.used_by, usedAt: l.used_at, revoked: !!l.revoked,
+      expiresAt: l.expires_at || null, hasCrypto: !!(l.invite_kdf_salt),
     }));
   },
 
@@ -926,6 +949,53 @@ const db = {
       postCount:        sql.prepare('SELECT COUNT(*) AS n FROM posts').get().n,
       activeStoryCount: sql.prepare("SELECT COUNT(*) AS n FROM stories WHERE expires_at > datetime('now')").get().n,
       messageCount:     sql.prepare('SELECT COUNT(*) AS n FROM messages').get().n,
+    };
+  },
+
+  // ── E2E Crypto ────────────────────────────────────────────────────────────
+
+  getUserCrypto(memberId) {
+    const row = sql.prepare('SELECT kdf_salt, wrapped_vault_key FROM user_crypto WHERE member_id = ?').get(memberId);
+    return row ? { kdfSalt: row.kdf_salt, wrappedVaultKey: row.wrapped_vault_key } : null;
+  },
+
+  setUserCrypto(memberId, kdfSalt, wrappedVaultKey) {
+    sql.prepare('INSERT OR REPLACE INTO user_crypto (member_id, kdf_salt, wrapped_vault_key) VALUES (?,?,?)')
+      .run(memberId, kdfSalt, wrappedVaultKey);
+  },
+
+  getVaultCrypto() {
+    const row = sql.prepare('SELECT kdf_salt, wrapped_vault_key FROM vault_crypto WHERE id = 1').get();
+    return row ? { kdfSalt: row.kdf_salt, wrappedVaultKey: row.wrapped_vault_key } : null;
+  },
+
+  setVaultCrypto(kdfSalt, wrappedVaultKey) {
+    sql.prepare('INSERT OR REPLACE INTO vault_crypto (id, kdf_salt, wrapped_vault_key) VALUES (1,?,?)')
+      .run(kdfSalt, wrappedVaultKey);
+  },
+
+  // Creates an E2E invite — code is SHA-256(raw_token) stored as hex
+  createCryptoInvite(label, createdBy, tokenHash, inviteKdfSalt, inviteWrappedVaultKey, expiresAt) {
+    const result = sql.prepare(
+      `INSERT INTO invite_links
+         (code, label, created_by, invite_kdf_salt, invite_wrapped_vault_key, expires_at)
+       VALUES (?,?,?,?,?,?)`
+    ).run(tokenHash, label || 'Invite', createdBy, inviteKdfSalt, inviteWrappedVaultKey, expiresAt);
+    return sql.prepare('SELECT * FROM invite_links WHERE id = ?').get(result.lastInsertRowid);
+  },
+
+  // Look up a crypto invite by the SHA-256 hash of the raw token
+  getInviteByTokenHash(tokenHash) {
+    const row = sql.prepare(
+      'SELECT * FROM invite_links WHERE code = ? AND used = 0 AND revoked = 0'
+    ).get(tokenHash);
+    if (!row) return null;
+    if (row.expires_at && new Date(row.expires_at) < new Date()) return null;
+    return {
+      id: row.id, label: row.label, code: row.code,
+      inviteKdfSalt: row.invite_kdf_salt,
+      inviteWrappedVaultKey: row.invite_wrapped_vault_key,
+      expiresAt: row.expires_at,
     };
   },
 

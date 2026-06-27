@@ -28,6 +28,7 @@ import { ToastProvider } from './src/context/ToastContext';
 import { VaultProvider, useVault } from './src/context/VaultContext';
 import { VaultSwitcherButton, NotificationBell } from './src/components/VaultSwitcher';
 import ResetPasswordScreen from './src/screens/ResetPasswordScreen';
+import JoinScreen from './src/screens/JoinScreen';
 import { navigationRef } from './src/utils/navigation';
 
 const RootStack = createStackNavigator();
@@ -222,6 +223,7 @@ function AppInner() {
         <RootStack.Navigator initialRouteName={initialRoute} screenOptions={makeHeader(colors)}>
           <RootStack.Screen name="Scan" component={ScanScreen} options={{ headerShown: false }} />
           <RootStack.Screen name="Auth" component={AuthScreen} options={{ headerShown: false }} />
+          <RootStack.Screen name="Join" component={JoinScreen} options={{ headerShown: false }} />
           <RootStack.Screen name="Main" component={MainTabs} options={{ headerShown: false }} />
           <RootStack.Screen name="ResetPassword" component={ResetPasswordScreen} options={{ headerShown: false }} />
           <RootStack.Screen
