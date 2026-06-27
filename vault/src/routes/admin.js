@@ -44,6 +44,52 @@ function requireAdmin(req, res, next) {
   }
 }
 
+// ─── Server-side E2E crypto helpers ───────────────────────────────────────────
+
+function pbkdf2Async(password, saltHex) {
+  return new Promise((resolve, reject) => {
+    crypto.pbkdf2(Buffer.from(password), Buffer.from(saltHex, 'hex'), 600000, 32, 'sha256',
+      (err, key) => err ? reject(err) : resolve(key));
+  });
+}
+
+function aesgcmEncrypt(data, keyBuf) {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', keyBuf, iv);
+  const ct = Buffer.concat([cipher.update(data), cipher.final()]);
+  return iv.toString('hex') + Buffer.concat([ct, cipher.getAuthTag()]).toString('hex');
+}
+
+function aesgcmDecrypt(encHex, keyBuf) {
+  const iv = Buffer.from(encHex.slice(0, 24), 'hex');
+  const data = Buffer.from(encHex.slice(24), 'hex');
+  const decipher = crypto.createDecipheriv('aes-256-gcm', keyBuf, iv);
+  decipher.setAuthTag(data.slice(-16));
+  return Buffer.concat([decipher.update(data.slice(0, -16)), decipher.final()]);
+}
+
+async function serverWrapKey(keyBuf, password) {
+  const kdfSalt = crypto.randomBytes(32).toString('hex');
+  const aesKey = await pbkdf2Async(password, kdfSalt);
+  return { kdfSalt, wrappedVaultKey: aesgcmEncrypt(keyBuf, aesKey) };
+}
+
+async function getOrInitVaultKey(adminPassword) {
+  const vc = db.getVaultCrypto();
+  if (!vc || !vc.initialized) {
+    const vaultKey = crypto.randomBytes(32);
+    const wrapped = await serverWrapKey(vaultKey, adminPassword);
+    db.setVaultCrypto(wrapped.kdfSalt, wrapped.wrappedVaultKey);
+    return vaultKey;
+  }
+  try {
+    const aesKey = await pbkdf2Async(adminPassword, vc.kdfSalt);
+    return aesgcmDecrypt(vc.wrappedVaultKey, aesKey);
+  } catch {
+    throw new Error('Incorrect admin password');
+  }
+}
+
 // ─── Backup helpers ────────────────────────────────────────────────────────────
 
 function loadBackupSettings() {
@@ -177,7 +223,7 @@ function adminRateLimit(req, res, next) {
   next();
 }
 
-router.post('/admin/api/setup', adminRateLimit, (req, res) => {
+router.post('/admin/api/setup', adminRateLimit, async (req, res) => {
   if (db.isSetupDone()) return res.status(409).json({ error: 'Already configured' });
   const { name, password, vaultName } = req.body;
   if (!name?.trim() || !password) return res.status(400).json({ error: 'Name and password required' });
@@ -185,6 +231,10 @@ router.post('/admin/api/setup', adminRateLimit, (req, res) => {
   try {
     if (vaultName?.trim()) setVaultName(vaultName.trim());
     db.createAdmin(name.trim(), password);
+    // Initialize vault key server-side, wrapped with admin password
+    const vaultKey = crypto.randomBytes(32);
+    const wrapped = await serverWrapKey(vaultKey, password);
+    db.setVaultCrypto(wrapped.kdfSalt, wrapped.wrappedVaultKey);
     const token = jwt.sign({ role: 'admin', name: name.trim() }, JWT_SECRET, { expiresIn: '7d' });
     res.json({ token, name: name.trim() });
   } catch (e) { res.status(409).json({ error: e.message }); }
@@ -224,14 +274,23 @@ router.get('/admin/api/reset-requests', requireAdmin, (req, res) => {
   res.json(db.getResetRequests());
 });
 
-router.post('/admin/api/members/:name/set-temp-password', requireAdmin, (req, res) => {
-  const { tempPassword } = req.body;
+router.post('/admin/api/members/:name/set-temp-password', requireAdmin, async (req, res) => {
+  const { tempPassword, adminPassword } = req.body;
   if (!tempPassword || String(tempPassword).length < 4)
     return res.status(400).json({ error: 'Temp password must be at least 4 characters' });
+  if (!adminPassword) return res.status(400).json({ error: 'Admin password required' });
   try {
+    const vaultKey = await getOrInitVaultKey(adminPassword);
     db.setTempPassword(req.params.name, String(tempPassword));
+    const member = db.getMemberByName(req.params.name);
+    if (member) {
+      const wrapped = await serverWrapKey(vaultKey, String(tempPassword));
+      db.setUserCrypto(member.id, wrapped.kdfSalt, wrapped.wrappedVaultKey);
+    }
     res.json({ ok: true });
-  } catch (e) { res.status(404).json({ error: e.message }); }
+  } catch (e) {
+    res.status(e.message === 'Incorrect admin password' ? 401 : 404).json({ error: e.message });
+  }
 });
 
 router.delete('/admin/api/members/:name', requireAdmin, (req, res) => {
@@ -276,18 +335,25 @@ router.get('/admin/api/invites', requireAdmin, (req, res) => {
   res.json(db.listInviteLinks());
 });
 
-// New crypto invite — browser generates token + wrapped vault key, sends hash + wrapped key
-// The raw token never reaches the server; only SHA-256(token) is stored
-router.post('/admin/api/invites', requireAdmin, (req, res) => {
-  const { label, tokenHash, inviteKdfSalt, inviteWrappedVaultKey, expiresInDays = 7 } = req.body;
+router.post('/admin/api/invites', requireAdmin, async (req, res) => {
+  const { label, adminPassword, expiresInDays = 7 } = req.body;
   if (!label?.trim()) return res.status(400).json({ error: 'Label required (e.g. "Grandma")' });
-  if (!tokenHash || !inviteKdfSalt || !inviteWrappedVaultKey)
-    return res.status(400).json({ error: 'Crypto params required — make sure vault is initialized' });
-  if (!/^[0-9a-f]{64}$/i.test(tokenHash))
-    return res.status(400).json({ error: 'Invalid tokenHash format' });
-  const expiresAt = new Date(Date.now() + Number(expiresInDays) * 86400000).toISOString();
-  const invite = db.createCryptoInvite(label.trim(), req.admin.name, tokenHash, inviteKdfSalt, inviteWrappedVaultKey, expiresAt);
-  res.json({ ok: true, id: invite.id, label: invite.label, expiresAt });
+  if (!adminPassword) return res.status(400).json({ error: 'Admin password required' });
+  try {
+    const vaultKey = await getOrInitVaultKey(adminPassword);
+    const rawToken = crypto.randomBytes(32);
+    const rawTokenHex = rawToken.toString('hex');
+    const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+    const inviteKdfSalt = crypto.randomBytes(32).toString('hex');
+    const inviteAesKey = await pbkdf2Async(rawTokenHex, inviteKdfSalt);
+    const inviteWrappedVaultKey = aesgcmEncrypt(vaultKey, inviteAesKey);
+    const expiresAt = new Date(Date.now() + Number(expiresInDays) * 86400000).toISOString();
+    const invite = db.createCryptoInvite(label.trim(), req.admin.name, tokenHash, inviteKdfSalt, inviteWrappedVaultKey, expiresAt);
+    const inviteUrl = `${getServerUrl()}/invite/${rawTokenHex}`;
+    res.json({ ok: true, id: invite.id, inviteUrl });
+  } catch (e) {
+    res.status(e.message === 'Incorrect admin password' ? 401 : 500).json({ error: e.message });
+  }
 });
 
 router.delete('/admin/api/invites/:code', requireAdmin, (req, res) => {
@@ -679,6 +745,10 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
       <label>For who?</label>
       <input id="invite-label" placeholder="e.g. Grandma Jones" autocomplete="off">
     </div>
+    <div class="field">
+      <label>Your admin password</label>
+      <input id="invite-admin-pass" type="password" placeholder="Confirm your password" autocomplete="current-password">
+    </div>
     <div id="create-err" class="err hidden"></div>
     <div class="modal-foot">
       <button class="btn btn-outline" onclick="hideCreateInvite()">Cancel</button>
@@ -695,6 +765,10 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
     <div class="field">
       <label>Temporary Password</label>
       <input id="temppass-input" type="text" placeholder="e.g. Family2024Reset" autocomplete="off">
+    </div>
+    <div class="field">
+      <label>Your admin password</label>
+      <input id="temppass-admin-pass" type="password" placeholder="Confirm your password" autocomplete="current-password">
     </div>
     <div id="temppass-err" class="err hidden"></div>
     <div class="modal-foot">
@@ -720,71 +794,8 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 
 <script>
 const api = window.location.origin;
-// Use sessionStorage so closing the tab always requires re-login (and re-derives vault key)
 let TOKEN = sessionStorage.getItem('fv_admin_token');
 
-// ── E2E crypto (Web Crypto API — PBKDF2 + AES-256-GCM) ───────────────────────
-// VAULT_KEY is cached in sessionStorage (hex) so page refreshes work within a tab session
-const fromHex = s => new Uint8Array(s.match(/.{2}/g).map(b => parseInt(b,16)));
-const toHex   = buf => Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
-
-let VAULT_KEY = (() => {
-  try { const k = sessionStorage.getItem('fv_vault_key'); return k ? fromHex(k) : null; } catch { return null; }
-})();
-
-async function pbkdf2Key(password, saltHex) {
-  const km = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveKey']);
-  return crypto.subtle.deriveKey(
-    { name: 'PBKDF2', salt: fromHex(saltHex), iterations: 600000, hash: 'SHA-256' },
-    km, { name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']
-  );
-}
-
-async function encryptBytes(data, aesKey) {
-  const raw = await crypto.subtle.exportKey('raw', aesKey);
-  const k = await crypto.subtle.importKey('raw', raw, { name: 'AES-GCM' }, false, ['encrypt']);
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, k, data);
-  return toHex(iv) + toHex(ct);
-}
-
-async function decryptBytes(encHex, aesKey) {
-  const raw = await crypto.subtle.exportKey('raw', aesKey);
-  const k = await crypto.subtle.importKey('raw', raw, { name: 'AES-GCM' }, false, ['decrypt']);
-  const iv = fromHex(encHex.slice(0, 24));
-  const ct = fromHex(encHex.slice(24));
-  return new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, k, ct));
-}
-
-async function wrapVaultKey(vaultKey, password) {
-  const kdfSalt = toHex(crypto.getRandomValues(new Uint8Array(32)));
-  const aesKey = await pbkdf2Key(password, kdfSalt);
-  const wrappedVaultKey = await encryptBytes(vaultKey, aesKey);
-  return { kdfSalt, wrappedVaultKey };
-}
-
-async function unwrapVaultKey(kdfSalt, wrappedHex, password) {
-  const aesKey = await pbkdf2Key(password, kdfSalt);
-  return decryptBytes(wrappedHex, aesKey);
-}
-
-async function initVaultKey(password) {
-  const vc = await apiFetch('/admin/api/vault-crypto');
-  if (vc.initialized === false) {
-    // First run: generate vault key, store wrapped with admin password
-    VAULT_KEY = crypto.getRandomValues(new Uint8Array(32));
-    const wrapped = await wrapVaultKey(VAULT_KEY, password);
-    await apiFetch('/admin/api/vault-crypto', { method: 'POST', body: JSON.stringify(wrapped) });
-  } else {
-    try {
-      VAULT_KEY = await unwrapVaultKey(vc.kdfSalt, vc.wrappedVaultKey, password);
-    } catch {
-      console.warn('[crypto] Could not derive vault key — admin password may have changed');
-    }
-  }
-  // Cache in sessionStorage so page refreshes within the same tab don't lose the key
-  if (VAULT_KEY) sessionStorage.setItem('fv_vault_key', toHex(VAULT_KEY));
-}
 
 function setErr(id, msg) {
   const el = document.getElementById(id);
@@ -812,10 +823,9 @@ async function init() {
   try {
     const status = await apiFetch('/admin/api/status');
     if (!status.setupDone) { showView('v-setup'); return; }
-    // Only skip login if we have both a valid session token AND the vault key (from sessionStorage)
-    if (TOKEN && VAULT_KEY) {
+    if (TOKEN) {
       try { await loadDashboard(status); return; }
-      catch { TOKEN = null; VAULT_KEY = null; sessionStorage.removeItem('fv_admin_token'); sessionStorage.removeItem('fv_vault_key'); }
+      catch { TOKEN = null; sessionStorage.removeItem('fv_admin_token'); }
     }
     showView('v-login');
   } catch { showView('v-login'); }
@@ -824,18 +834,16 @@ async function init() {
 async function doSetup() {
   const btn = document.getElementById('setup-btn');
   btn.disabled = true; setErr('setup-err', '');
-  const password = document.getElementById('setup-pass').value;
   try {
     const { token } = await apiFetch('/admin/api/setup', {
       method: 'POST',
       body: JSON.stringify({
         vaultName: document.getElementById('setup-vault-name').value.trim(),
         name: document.getElementById('setup-name').value.trim(),
-        password,
+        password: document.getElementById('setup-pass').value,
       }),
     });
     TOKEN = token; sessionStorage.setItem('fv_admin_token', token);
-    await initVaultKey(password);
     await loadDashboard();
   } catch (e) { setErr('setup-err', e.message); btn.disabled = false; }
 }
@@ -843,22 +851,19 @@ async function doSetup() {
 async function doLogin() {
   const btn = document.getElementById('login-btn');
   btn.disabled = true; setErr('login-err', '');
-  const password = document.getElementById('login-pass').value;
   try {
     const { token } = await apiFetch('/admin/api/login', {
       method: 'POST',
-      body: JSON.stringify({ name: document.getElementById('login-name').value.trim(), password }),
+      body: JSON.stringify({ name: document.getElementById('login-name').value.trim(), password: document.getElementById('login-pass').value }),
     });
     TOKEN = token; sessionStorage.setItem('fv_admin_token', token);
-    await initVaultKey(password);
     await loadDashboard();
   } catch (e) { setErr('login-err', e.message); btn.disabled = false; }
 }
 
 function doLogout() {
-  TOKEN = null; VAULT_KEY = null;
+  TOKEN = null;
   sessionStorage.removeItem('fv_admin_token');
-  sessionStorage.removeItem('fv_vault_key');
   showView('v-login');
 }
 
@@ -1053,6 +1058,7 @@ let tempPassTarget = null;
 function showSetTempPass(name) {
   tempPassTarget = name;
   document.getElementById('temppass-input').value = '';
+  document.getElementById('temppass-admin-pass').value = '';
   document.getElementById('temppass-hint').textContent = 'Set a temporary password for ' + name + '. They sign in with it once, then must create a new password.';
   setErr('temppass-err', '');
   document.getElementById('temppass-btn').disabled = false;
@@ -1065,19 +1071,14 @@ function hideTempPass(e) {
 async function doSetTempPass() {
   const btn = document.getElementById('temppass-btn');
   const pw = document.getElementById('temppass-input').value.trim();
+  const adminPassword = document.getElementById('temppass-admin-pass').value;
   if (!pw || pw.length < 4) { setErr('temppass-err', 'Must be at least 4 characters'); return; }
+  if (!adminPassword) { setErr('temppass-err', 'Enter your admin password'); return; }
   btn.disabled = true; setErr('temppass-err', '');
   try {
     await apiFetch(\`/admin/api/members/\${encodeURIComponent(tempPassTarget)}/set-temp-password\`, {
-      method: 'POST', body: JSON.stringify({ tempPassword: pw }),
+      method: 'POST', body: JSON.stringify({ tempPassword: pw, adminPassword }),
     });
-    // Re-wrap vault key with temp password so member retains data access after reset
-    if (VAULT_KEY) {
-      const wrapped = await wrapVaultKey(VAULT_KEY, pw);
-      await apiFetch(\`/admin/api/members/\${encodeURIComponent(tempPassTarget)}/set-wrapped-key\`, {
-        method: 'POST', body: JSON.stringify(wrapped),
-      });
-    }
     hide('m-temppass');
     alert('Temp password set for ' + tempPassTarget + '.\\n\\nTell them to sign in with:\\n' + pw + '\\n\\nThey will be prompted to set a new password immediately.');
     const members = await apiFetch('/admin/api/members');
@@ -1163,6 +1164,7 @@ async function copyCode(code) {
 
 function showCreateInvite() {
   document.getElementById('invite-label').value = '';
+  document.getElementById('invite-admin-pass').value = '';
   setErr('create-err', '');
   document.getElementById('create-btn').disabled = false;
   show('m-create');
@@ -1176,30 +1178,17 @@ async function doCreateInvite() {
   const btn = document.getElementById('create-btn');
   btn.disabled = true; setErr('create-err', '');
   const label = document.getElementById('invite-label').value.trim();
+  const adminPassword = document.getElementById('invite-admin-pass').value;
   if (!label) { setErr('create-err', 'Enter a name for this invite'); btn.disabled = false; return; }
-  if (!VAULT_KEY) { setErr('create-err', 'Vault not unlocked — log out and back in'); btn.disabled = false; return; }
+  if (!adminPassword) { setErr('create-err', 'Enter your admin password'); btn.disabled = false; return; }
   try {
-    // Generate 32-byte random token — this is what the family member's app will receive
-    const rawToken = crypto.getRandomValues(new Uint8Array(32));
-    const rawTokenHex = toHex(rawToken);
-    // Hash token before sending to server (server stores hash, never the raw token)
-    const tokenHash = toHex(await crypto.subtle.digest('SHA-256', rawToken));
-    // Derive invite wrapping key from token, wrap vault_key
-    const inviteKdfSalt = toHex(crypto.getRandomValues(new Uint8Array(32)));
-    const inviteAesKey = await pbkdf2Key(rawTokenHex, inviteKdfSalt);
-    const inviteWrappedVaultKey = await encryptBytes(VAULT_KEY, inviteAesKey);
-    // Server stores: hash + salt + wrapped vault key (never the raw token)
-    const serverBase = getServerUrl();
     const result = await apiFetch('/admin/api/invites', {
       method: 'POST',
-      body: JSON.stringify({ label, tokenHash, inviteKdfSalt, inviteWrappedVaultKey }),
+      body: JSON.stringify({ label, adminPassword }),
     });
-    // Build invite URL with raw token (never touches server)
-    const inviteUrl = serverBase + '/invite/' + rawTokenHex;
-    // Persist invite URL in sessionStorage so admin can re-show QR in this session
-    sessionStorage.setItem('fv_invite_' + result.id, inviteUrl);
+    sessionStorage.setItem('fv_invite_' + result.id, result.inviteUrl);
     hide('m-create');
-    await showInviteQr(label, inviteUrl);
+    await showInviteQr(label, result.inviteUrl);
     const invites = await apiFetch('/admin/api/invites');
     renderInvites(invites);
   } catch (e) { setErr('create-err', e.message); btn.disabled = false; }
