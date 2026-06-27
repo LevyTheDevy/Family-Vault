@@ -13,8 +13,8 @@ async function encryptMsg(text) {
 
 async function decryptMsg(text) {
   if (!text || !text.startsWith('enc:')) return text;
-  if (!_decryptFn) return '🔒 Encrypted';
-  try { return await _decryptFn(text.slice(4)); } catch { return '🔒 Encrypted'; }
+  if (!_decryptFn) return '[Encrypted]';
+  try { return await _decryptFn(text.slice(4)); } catch { return '[Encrypted]'; }
 }
 const _avatarV = {};
 
