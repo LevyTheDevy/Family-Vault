@@ -125,6 +125,52 @@ To customise paths or use your own secrets, set these environment variables befo
 
 ---
 
+## Building the App
+
+Pre-built APKs for Android are attached to each [GitHub Release](https://github.com/LevyTheDevy/Family-Vault/releases). Download the latest `.apk`, enable *Install from unknown sources* in your Android settings, and install it.
+
+For iOS or to build from source:
+
+### Requirements
+
+- [Node.js](https://nodejs.org/) 18 or later
+- [Expo CLI](https://docs.expo.dev/get-started/installation/): `npm install -g expo-cli`
+- [EAS CLI](https://docs.expo.dev/build/introduction/): `npm install -g eas-cli`
+- An [Expo account](https://expo.dev/signup) (free)
+- iOS builds additionally require a Mac, Xcode, and an [Apple Developer account](https://developer.apple.com/programs/) ($99/year)
+
+### Android APK
+
+```bash
+cd app
+npm install
+eas build --platform android --profile preview
+```
+
+EAS builds in the cloud and gives you a download link for the APK. No Android Studio required.
+
+### iOS IPA
+
+```bash
+cd app
+npm install
+eas build --platform ios --profile production
+```
+
+Requires your Apple Developer certificates to be configured in EAS. Run `eas credentials` to set them up.
+
+### Local build (advanced)
+
+```bash
+cd app
+npm install
+npx expo prebuild          # generates native android/ and ios/ folders
+```
+
+Then open `android/` in Android Studio or `ios/` in Xcode and build from there.
+
+---
+
 ## Tech Stack
 
 **Server:** Node.js, Express, better-sqlite3, Multer, JWT
