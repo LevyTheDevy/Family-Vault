@@ -5,8 +5,7 @@ const os = require('os');
 const path = require('path');
 const fs = require('fs');
 const db = require('../db/sqlite');
-const { JWT_SECRET } = require('./auth');
-const { STORAGE_DIR, BACKUP_DIR, DATA_DIR, VAULT_NAME, VAULT_ACCESS_KEY } = require('../config');
+const { STORAGE_DIR, BACKUP_DIR, DATA_DIR, VAULT_NAME, VAULT_ACCESS_KEY, JWT_SECRET } = require('../config');
 
 const AVATAR_DIR = path.join(STORAGE_DIR, 'avatars');
 const BACKUP_SETTINGS_FILE = path.join(DATA_DIR, 'backup-settings.json');

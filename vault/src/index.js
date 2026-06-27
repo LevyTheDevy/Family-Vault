@@ -3,11 +3,10 @@ const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
-const { exec } = require('child_process');
-const https = require('https');
+const http = require('http');
+const jwt = require('jsonwebtoken');
 
-const { STORAGE_DIR, VAULT_NAME } = require('./config');
-fs.mkdirSync(STORAGE_DIR, { recursive: true });
+const { STORAGE_DIR, VAULT_NAME, JWT_SECRET } = require('./config');
 
 const authRoutes = require('./routes/auth');
 const postsRoutes = require('./routes/posts');
@@ -19,29 +18,23 @@ const adminRoutes = require('./routes/admin');
 const uploadsRoutes = require('./routes/uploads');
 const db = require('./db/sqlite');
 
+// ─── Public API (port 3000, all interfaces, Cloudflare-facing) ───────────────
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = parseInt(process.env.PORT) || 3000;
 
-app.set('trust proxy', true); // trust Cloudflare/reverse-proxy X-Forwarded-For so req.ip is the real client IP
+app.set('trust proxy', true);
 app.use(cors({ origin: (origin, cb) => cb(null, true), credentials: true }));
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: false, limit: '1mb' }));
 
-// Protected file serving — require valid JWT to access uploaded media
-const jwt = require('jsonwebtoken');
-const { JWT_SECRET } = require('./routes/auth');
+// Protected media — JWT required
 app.get('/storage/:filename', (req, res) => {
   try {
     jwt.verify((req.headers.authorization || req.query.token || '').replace('Bearer ', ''), JWT_SECRET);
   } catch { return res.status(401).end(); }
-  const safeName = path.basename(req.params.filename);
-  res.sendFile(path.join(STORAGE_DIR, safeName));
+  res.sendFile(path.join(STORAGE_DIR, path.basename(req.params.filename)));
 });
 
-// Admin dashboard + API (before auth routes so /admin/* takes priority)
-app.use(adminRoutes);
-
-// App API routes
 app.use(authRoutes);
 app.use(postsRoutes);
 app.use(storiesRoutes);
@@ -52,22 +45,29 @@ app.use(uploadsRoutes);
 
 app.get('/health', (req, res) => res.json({ status: 'ok', vaultName: VAULT_NAME }));
 
-// Purge expired stories from DB and disk every hour
+// ─── Admin panel (port 3001, localhost only — never reachable via tunnel) ────
+const adminApp = express();
+const ADMIN_PORT = parseInt(process.env.ADMIN_PORT) || 3001;
+
+adminApp.use(cors({ origin: (origin, cb) => cb(null, true), credentials: true }));
+adminApp.use(express.json({ limit: '1mb' }));
+adminApp.use(express.urlencoded({ extended: false, limit: '1mb' }));
+adminApp.use(adminRoutes);
+adminApp.get('/', (req, res) => res.redirect('/admin'));
+
+// ─── Cleanup: purge expired stories every hour ────────────────────────────────
 function purgeExpiredStories() {
   try {
     const files = db.purgeExpiredStories();
-    for (const fn of files) {
-      try { fs.unlinkSync(path.join(__dirname, '../storage', fn)); } catch {}
-    }
+    for (const fn of files)
+      try { fs.unlinkSync(path.join(STORAGE_DIR, fn)); } catch {}
     if (files.length) console.log(`[cleanup] removed ${files.length} expired story file(s)`);
   } catch {}
 }
 purgeExpiredStories();
 setInterval(purgeExpiredStories, 60 * 60 * 1000);
 
-// Root → admin dashboard
-app.get('/', (req, res) => res.redirect('/admin'));
-
+// ─── Start both servers ───────────────────────────────────────────────────────
 function getLocalIp() {
   for (const iface of Object.values(os.networkInterfaces()))
     for (const addr of iface)
@@ -75,35 +75,12 @@ function getLocalIp() {
   return 'localhost';
 }
 
-// Try UPnP to automatically punch through the router
-function tryUPnP(localIp) {
-  try {
-    const upnp = require('nat-upnp').createClient();
-    upnp.portMapping({ public: PORT, private: PORT, ttl: 0, description: 'FamilyVault' }, (err) => {
-      if (err) { console.log('  UPnP:     not available (manual port forward needed)'); return; }
-      upnp.externalIp((err, extIp) => {
-        if (err || !extIp) return;
-        console.log(`  External: http://${extIp}:${PORT}`);
-        console.log(`  Vault code prefix: ${extIp}:${PORT}`);
-        // Renew UPnP mapping every 50 minutes (before 1hr TTL expires)
-        setInterval(() => upnp.portMapping({ public: PORT, private: PORT, ttl: 3600, description: 'FamilyVault' }, () => {}), 50 * 60 * 1000);
-      });
-    });
-  } catch {
-    // nat-upnp not installed — skip silently
-  }
-}
-
-app.listen(PORT, '0.0.0.0', () => {
-  const localIp = getLocalIp();
-  const url = `http://${localIp}:${PORT}`;
+http.createServer(app).listen(PORT, '0.0.0.0', () => {
   console.log(`\n  FamilyVault running`);
-  console.log(`  Local:    ${url}`);
-  console.log(`  Admin:    ${url}/admin`);
-  tryUPnP(localIp);
-  console.log('');
-  const open = process.platform === 'win32' ? `start ${url}/admin`
-    : process.platform === 'darwin' ? `open ${url}/admin`
-    : `xdg-open ${url}/admin`;
-  exec(open);
+  console.log(`  API:      http://${getLocalIp()}:${PORT}`);
+});
+
+http.createServer(adminApp).listen(ADMIN_PORT, '127.0.0.1', () => {
+  console.log(`  Admin:    http://localhost:${ADMIN_PORT}/admin`);
+  console.log(`  (admin is localhost-only — not reachable via Cloudflare tunnel)\n`);
 });

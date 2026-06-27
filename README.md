@@ -42,8 +42,10 @@ That is it. Docker will download everything it needs, build the server, and star
 Open your browser and go to:
 
 ```
-http://localhost:3000/admin
+http://localhost:3001/admin
 ```
+
+The admin panel runs on port 3001, which is bound to localhost only. It is never reachable through Cloudflare or from any other device on your network — only from a browser on the machine running the server.
 
 Create your admin account here. This gives you access to the admin panel where you can create invite links for family members.
 
@@ -117,7 +119,8 @@ To customise paths or use your own secrets, set these environment variables befo
 | `VAULT_NAME` | `Family Vault` | Name shown in the app |
 | `JWT_SECRET` | auto-generated | Override the JWT signing secret |
 | `VAULT_ACCESS_KEY` | auto-generated | Override the vault access key shown in the admin QR code |
-| `PORT` | `3000` | Server port |
+| `PORT` | `3000` | App API port |
+| `ADMIN_PORT` | `3001` | Admin panel port (localhost only) |
 
 ---
 
