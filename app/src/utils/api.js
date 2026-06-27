@@ -5,6 +5,31 @@ let _encryptFn = null, _decryptFn = null;
 export const setVaultCrypto = (encFn, decFn) => { _encryptFn = encFn; _decryptFn = decFn; };
 export const clearVaultCrypto = () => { _encryptFn = null; _decryptFn = null; };
 export const getStoredAuthHeader = () => _token ? { Authorization: `Bearer ${_token}` } : {};
+export const getDecryptFn = () => _decryptFn;
+
+// Encrypt an image URI: reads as base64, encrypts, writes to a .enc temp file.
+// Returns { uri, encrypted } — upload the uri with type application/octet-stream.
+export async function encryptImageUri(uri) {
+  if (!_encryptFn || !uri) {
+    console.log('[FV] encryptImageUri: no encrypt fn, uploading plain', !!_encryptFn, !!uri);
+    return { uri, encrypted: false, originalUri: uri };
+  }
+  try {
+    console.log('[FV] encryptImageUri: reading', uri.slice(-40));
+    const FileSystem = require('expo-file-system/legacy');
+    const base64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
+    console.log('[FV] encryptImageUri: read ok, base64 len', base64.length);
+    const encText = 'enc:' + await _encryptFn(base64);
+    console.log('[FV] encryptImageUri: encrypted, encText len', encText.length);
+    const tempUri = FileSystem.cacheDirectory + 'enc_up_' + Date.now() + '_' + Math.random().toString(36).slice(2) + '.enc';
+    await FileSystem.writeAsStringAsync(tempUri, encText);
+    console.log('[FV] encryptImageUri: wrote temp file', tempUri.slice(-40));
+    return { uri: tempUri, encrypted: true, originalUri: uri };
+  } catch (e) {
+    console.error('[FV] encryptImageUri: FAILED', e?.message || e);
+    return { uri, encrypted: false, originalUri: uri };
+  }
+}
 
 async function encryptMsg(text) {
   if (!text || !_encryptFn) return text;
@@ -159,12 +184,20 @@ export const deleteComment = (postId, commentId) =>
 export async function uploadPhotos(imageUris, caption = '', collectionId = null) {
   const uris = Array.isArray(imageUris) ? imageUris : [imageUris];
   const fd = new FormData();
-  uris.forEach((uri, i) => {
-    fd.append('photos', { uri, type: 'image/jpeg', name: `photo${i}.jpg` });
+  const encUris = await Promise.all(uris.map(encryptImageUri));
+  encUris.forEach(({ uri, encrypted, originalUri }, i) => {
+    const origExt = (originalUri || uri).split('?')[0].split('.').pop()?.toLowerCase() || 'jpg';
+    const plainName = `photo${i}.${origExt}`;
+    console.log(`[FV] uploadPhotos: photo${i} encrypted=${encrypted} name=${encrypted ? `photo${i}.enc` : plainName}`);
+    fd.append('photos', encrypted
+      ? { uri, type: 'image/jpeg', name: `photo${i}.enc` }
+      : { uri, type: 'image/jpeg', name: plainName });
   });
   const encCaption = await encryptMsg(caption);
   if (encCaption) fd.append('caption', encCaption);
+  console.log('[FV] uploadPhotos: POSTing to', `${_url}/posts`);
   const post = await req(`${_url}/posts`, { method: 'POST', headers: h(), body: fd });
+  console.log('[FV] uploadPhotos: success, post id', post?.id);
   if (collectionId) await addToCollection(collectionId, post.id).catch(() => {});
   return decryptPost(addTokenToPost(post));
 }
@@ -273,8 +306,16 @@ async function uploadVideoChunked(videoUri, thumbnailUri, caption, durationSecs,
 
 export async function sendChatMedia(conversationId, uri, mimeType) {
   const fd = new FormData();
-  const ext = uri.split('.').pop()?.toLowerCase() || 'jpg';
-  fd.append('media', { uri, type: mimeType || `image/${ext}`, name: `media.${ext}` });
+  const isVideo = mimeType?.startsWith('video') || /\.(mp4|mov|avi|mkv)$/i.test(uri);
+  if (!isVideo) {
+    const { uri: encUri, encrypted } = await encryptImageUri(uri);
+    fd.append('media', encrypted
+      ? { uri: encUri, type: 'image/jpeg', name: 'media.enc' }
+      : { uri: encUri, type: mimeType || 'image/jpeg', name: 'media.jpg' });
+  } else {
+    const ext = uri.split('.').pop()?.toLowerCase() || 'mp4';
+    fd.append('media', { uri, type: mimeType || `video/${ext}`, name: `media.${ext}` });
+  }
   return req(`${_url}/conversations/${conversationId}/media`, { method: 'POST', headers: h(), body: fd })
     .then(addTokenToMessage);
 }
@@ -293,7 +334,10 @@ export const deleteStory = (id) =>
 
 export async function uploadStory(imageUri, durationHours, caption = '') {
   const fd = new FormData();
-  fd.append('photo', { uri: imageUri, type: 'image/jpeg', name: 'story.jpg' });
+  const { uri: encUri, encrypted } = await encryptImageUri(imageUri);
+  fd.append('photo', encrypted
+    ? { uri: encUri, type: 'image/jpeg', name: 'story.enc' }
+    : { uri: encUri, type: 'image/jpeg', name: 'story.jpg' });
   fd.append('durationHours', String(durationHours));
   const encCaption = await encryptMsg(caption);
   if (encCaption) fd.append('caption', encCaption);

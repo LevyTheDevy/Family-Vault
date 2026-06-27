@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Text, StyleSheet, Image, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, Dimensions } from 'react-native';
+import CachedImage from './CachedImage';
 
 const WIDTH = Dimensions.get('window').width - 24;
 
@@ -14,8 +15,8 @@ function timeAgo(isoString) {
 export default function PostCard({ post }) {
   return (
     <View style={styles.card}>
-      <Image
-        source={{ uri: post.imageUrl }}
+      <CachedImage
+        uri={post.imageUrl}
         style={styles.image}
         resizeMode="cover"
       />

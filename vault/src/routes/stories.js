@@ -15,8 +15,12 @@ const storage = multer.diskStorage({
 });
 const upload = multer({
   storage,
-  limits: { fileSize: 20 * 1024 * 1024 },
-  fileFilter: (_, file, cb) => /^image\//.test(file.mimetype) ? cb(null, true) : cb(new Error('Only image files allowed for stories')),
+  limits: { fileSize: 80 * 1024 * 1024 },
+  fileFilter: (_, file, cb) => {
+    if (/^image\//.test(file.mimetype)) return cb(null, true);
+    if (file.mimetype === 'application/octet-stream' && file.originalname.endsWith('.enc')) return cb(null, true);
+    cb(new Error('Only image files allowed for stories'));
+  },
 });
 
 function auth(req, res, next) {

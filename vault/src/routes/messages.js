@@ -19,7 +19,11 @@ const mediaStorage = multer.diskStorage({
 const uploadMedia = multer({
   storage: mediaStorage,
   limits: { fileSize: 300 * 1024 * 1024 },
-  fileFilter: (_, file, cb) => /^(image|video)\//.test(file.mimetype) ? cb(null, true) : cb(new Error('Only image or video files allowed')),
+  fileFilter: (_, file, cb) => {
+    if (/^(image|video)\//.test(file.mimetype)) return cb(null, true);
+    if (file.mimetype === 'application/octet-stream' && file.originalname.endsWith('.enc')) return cb(null, true);
+    cb(new Error('Only image or video files allowed'));
+  },
 }).single('media');
 
 function auth(req, res, next) {

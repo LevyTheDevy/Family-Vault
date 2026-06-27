@@ -21,7 +21,11 @@ const storage = multer.diskStorage({
 const upload = multer({
   storage,
   limits: { fileSize: 300 * 1024 * 1024 },
-  fileFilter: (_, file, cb) => /^(image|video)\//.test(file.mimetype) ? cb(null, true) : cb(new Error('Only image or video files allowed')),
+  fileFilter: (_, file, cb) => {
+    if (/^(image|video)\//.test(file.mimetype)) return cb(null, true);
+    if (file.mimetype === 'application/octet-stream' && file.originalname.endsWith('.enc')) return cb(null, true);
+    cb(new Error('Only image or video files allowed'));
+  },
 });
 
 // Accept: photos[] (images), video (single), thumbnail (single thumb for video)
@@ -53,10 +57,20 @@ router.get('/posts', auth, (req, res) => {
   res.json({ posts: posts.map((p) => withBase(req, p)), total, offset, limit });
 });
 
-router.post('/posts', auth, uploadFields, (req, res) => {
+router.post('/posts', auth, (req, res, next) => {
+  uploadFields(req, res, (err) => {
+    if (err) {
+      console.error('[posts] multer error:', err.message);
+      return res.status(400).json({ error: err.message });
+    }
+    next();
+  });
+}, (req, res) => {
   const photos = req.files?.photos || [];
   const videos = req.files?.video || [];
   const thumbnails = req.files?.thumbnail || [];
+
+  console.log('[posts] POST /posts — photos:', photos.map(f => `${f.originalname}(${f.mimetype},${f.size}b)`).join(', '), 'videos:', videos.length);
 
   if (!photos.length && !videos.length) {
     return res.status(400).json({ error: 'No media provided' });
