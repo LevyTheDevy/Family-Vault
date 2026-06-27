@@ -1,99 +1,72 @@
 'use strict';
 
-// Hermes (React Native) exposes Web Crypto on globalThis, not as a bare global
-const wc = globalThis.crypto;
+// Pure-JS crypto — no Web Crypto API required (works in Hermes/Expo Go)
+// PBKDF2-SHA256 via @noble/hashes, AES-256-GCM via @noble/ciphers
+// Random bytes via tweetnacl (already installed, proven in RN)
+
+import { pbkdf2Async } from '@noble/hashes/pbkdf2';
+import { sha256 } from '@noble/hashes/sha256';
+import { gcm } from '@noble/ciphers/aes';
+import nacl from 'tweetnacl';
 
 const toHex = buf =>
   Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
 const fromHex = s =>
   new Uint8Array(s.match(/.{2}/g).map(b => parseInt(b, 16)));
 
-async function pbkdf2Key(passwordStr, saltHex) {
-  const km = await wc.subtle.importKey(
-    'raw', new TextEncoder().encode(passwordStr), 'PBKDF2', false, ['deriveKey']
-  );
-  return wc.subtle.deriveKey(
-    { name: 'PBKDF2', salt: fromHex(saltHex), iterations: 600000, hash: 'SHA-256' },
-    km,
-    { name: 'AES-GCM', length: 256 },
-    true,
-    ['encrypt', 'decrypt']
-  );
+async function deriveKey(passwordStr, saltHex) {
+  const passBytes = new TextEncoder().encode(passwordStr);
+  const saltBytes = fromHex(saltHex);
+  return pbkdf2Async(sha256, passBytes, saltBytes, { c: 600000, dkLen: 32 });
 }
 
-async function gcmEncrypt(data, aesKey) {
-  const raw = await wc.subtle.exportKey('raw', aesKey);
-  const k = await wc.subtle.importKey('raw', raw, { name: 'AES-GCM' }, false, ['encrypt']);
-  const iv = wc.getRandomValues(new Uint8Array(12));
-  const ct = await wc.subtle.encrypt({ name: 'AES-GCM', iv }, k, data);
+// Format: hex(iv[12]) + hex(ciphertext+tag) — matches server-side Node.js AES-GCM
+function aesgcmEncrypt(data, keyBytes) {
+  const iv = nacl.randomBytes(12);
+  const ct = gcm(keyBytes, iv).encrypt(data instanceof Uint8Array ? data : new Uint8Array(data));
   return toHex(iv) + toHex(ct);
 }
 
-async function gcmDecrypt(encHex, aesKey) {
-  const raw = await wc.subtle.exportKey('raw', aesKey);
-  const k = await wc.subtle.importKey('raw', raw, { name: 'AES-GCM' }, false, ['decrypt']);
+function aesgcmDecrypt(encHex, keyBytes) {
   const iv = fromHex(encHex.slice(0, 24));
   const ct = fromHex(encHex.slice(24));
-  return new Uint8Array(await wc.subtle.decrypt({ name: 'AES-GCM', iv }, k, ct));
+  return gcm(keyBytes, iv).decrypt(ct);
 }
 
-// ── Key management ────────────────────────────────────────────────────────────
+// ── Key management ─────────────────────────────────────────────────────────────
 
-/** Wrap vault key with a user password. Returns { kdfSalt, wrappedVaultKey } for storage. */
 export async function wrapVaultKey(vaultKey, password) {
-  const kdfSalt = toHex(wc.getRandomValues(new Uint8Array(32)));
-  const aesKey = await pbkdf2Key(password, kdfSalt);
-  const wrappedVaultKey = await gcmEncrypt(vaultKey, aesKey);
+  const kdfSalt = toHex(nacl.randomBytes(32));
+  const keyBytes = await deriveKey(password, kdfSalt);
+  const wrappedVaultKey = aesgcmEncrypt(vaultKey, keyBytes);
   return { kdfSalt, wrappedVaultKey };
 }
 
-/** Unwrap vault key from storage using the user's password. Returns Uint8Array(32). */
 export async function unwrapVaultKey(kdfSalt, wrappedVaultKey, password) {
-  const aesKey = await pbkdf2Key(password, kdfSalt);
-  return gcmDecrypt(wrappedVaultKey, aesKey);
+  const keyBytes = await deriveKey(password, kdfSalt);
+  return aesgcmDecrypt(wrappedVaultKey, keyBytes);
 }
 
-/**
- * Unwrap vault key from an invite link.
- * rawTokenHex: the 64-char hex token from the invite URL (/invite/<token>)
- */
 export async function unwrapInviteVaultKey(inviteKdfSalt, inviteWrappedVaultKey, rawTokenHex) {
-  const aesKey = await pbkdf2Key(rawTokenHex, inviteKdfSalt);
-  return gcmDecrypt(inviteWrappedVaultKey, aesKey);
+  const keyBytes = await deriveKey(rawTokenHex, inviteKdfSalt);
+  return aesgcmDecrypt(inviteWrappedVaultKey, keyBytes);
 }
 
-// ── Content encryption (Phase 2+) ─────────────────────────────────────────────
+// ── Content encryption (Phase 2+) ──────────────────────────────────────────────
 
-/** Encrypt a UTF-8 string with the vault key. Returns hex string. */
 export async function encryptText(plaintext, vaultKeyBytes) {
-  const k = await wc.subtle.importKey('raw', vaultKeyBytes, { name: 'AES-GCM' }, false, ['encrypt']);
-  const iv = wc.getRandomValues(new Uint8Array(12));
-  const ct = await wc.subtle.encrypt({ name: 'AES-GCM', iv }, k, new TextEncoder().encode(plaintext));
-  return toHex(iv) + toHex(ct);
+  return aesgcmEncrypt(new TextEncoder().encode(plaintext), vaultKeyBytes);
 }
 
-/** Decrypt a hex string produced by encryptText. Returns UTF-8 string. */
 export async function decryptText(encHex, vaultKeyBytes) {
-  const k = await wc.subtle.importKey('raw', vaultKeyBytes, { name: 'AES-GCM' }, false, ['decrypt']);
-  const iv = fromHex(encHex.slice(0, 24));
-  const ct = fromHex(encHex.slice(24));
-  const plain = await wc.subtle.decrypt({ name: 'AES-GCM', iv }, k, ct);
+  const plain = aesgcmDecrypt(encHex, vaultKeyBytes);
   return new TextDecoder().decode(plain);
 }
 
-/** Encrypt binary data with the vault key. Returns hex string. */
 export async function encryptBinary(data, vaultKeyBytes) {
-  const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
-  const k = await wc.subtle.importKey('raw', vaultKeyBytes, { name: 'AES-GCM' }, false, ['encrypt']);
-  const iv = wc.getRandomValues(new Uint8Array(12));
-  const ct = await wc.subtle.encrypt({ name: 'AES-GCM', iv }, k, bytes);
-  return toHex(iv) + toHex(ct);
+  return aesgcmEncrypt(data, vaultKeyBytes);
 }
 
-/** Decrypt a hex string produced by encryptBinary. Returns Uint8Array. */
 export async function decryptBinary(encHex, vaultKeyBytes) {
-  const k = await wc.subtle.importKey('raw', vaultKeyBytes, { name: 'AES-GCM' }, false, ['decrypt']);
-  const iv = fromHex(encHex.slice(0, 24));
-  const ct = fromHex(encHex.slice(24));
-  return new Uint8Array(await wc.subtle.decrypt({ name: 'AES-GCM', iv }, k, ct));
+  return aesgcmDecrypt(encHex, vaultKeyBytes);
 }
