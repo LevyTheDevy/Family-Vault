@@ -435,6 +435,7 @@ export default function ChatScreen({ route, navigation }) {
               </SwipeRow>
 
               <View style={[styles.msgMeta, isMe ? styles.msgMetaMe : styles.msgMetaOther]}>
+                <Feather name="lock" size={9} color={colors.textSub} style={{ marginRight: 2, opacity: 0.6 }} />
                 <Text style={[styles.metaTime, { color: colors.textSub }]}>{fmt(item.createdAt)}</Text>
                 {isMe && <ReadReceipt allRead={allRead} someSeen={someSeen} accentColor={colors.accent} mutedColor={colors.textSub} />}
               </View>

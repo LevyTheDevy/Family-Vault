@@ -394,9 +394,11 @@ export const fetchMessages = async (conversationId) => {
 
 export const sendMessage = async (conversationId, text, gifUrl = null, replyToId = null, postRef = null) => {
   const encText = await encryptMsg(text);
-  return req(`${_url}/conversations/${conversationId}/messages`, {
+  const msg = await req(`${_url}/conversations/${conversationId}/messages`, {
     method: 'POST', headers: jh(), body: JSON.stringify({ text: encText, gifUrl, replyToId, postRef }),
   });
+  const withToken = addTokenToMessage(msg);
+  return { ...withToken, text: await decryptMsg(withToken.text) };
 };
 
 export const reactToMessage = (conversationId, messageId, emoji) =>
