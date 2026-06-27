@@ -32,7 +32,8 @@
     "plugins": [
       "expo-camera",
       "expo-image-picker",
-      "expo-secure-store"
+      "expo-secure-store",
+      "./plugins/withCleartextTraffic"
     ],
     "extra": {
       "eas": {
