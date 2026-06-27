@@ -350,7 +350,8 @@ router.post('/admin/api/invites', requireAdmin, async (req, res) => {
     const expiresAt = new Date(Date.now() + Number(expiresInDays) * 86400000).toISOString();
     const invite = db.createCryptoInvite(label.trim(), req.admin.name, tokenHash, inviteKdfSalt, inviteWrappedVaultKey, expiresAt);
     const inviteUrl = `${getServerUrl()}/invite/${rawTokenHex}`;
-    res.json({ ok: true, id: invite.id, inviteUrl });
+    const qrDataUrl = await QRCode.toDataURL(inviteUrl, { width: 300, margin: 2 });
+    res.json({ ok: true, id: invite.id, inviteUrl, qrDataUrl });
   } catch (e) {
     res.status(e.message === 'Incorrect admin password' ? 401 : 500).json({ error: e.message });
   }
@@ -595,7 +596,6 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 .spinner{width:28px;height:28px;border:3px solid var(--border);border-top-color:var(--text);border-radius:50%;animation:spin .7s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 </style>
-<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.4/build/qrcode.min.js"></script>
 </head>
 <body>
 
@@ -1110,12 +1110,11 @@ function renderInvites(invites) {
         : '<span class="badge badge-active">Active</span>';
     const created = new Date(inv.createdAt).toLocaleDateString();
     return \`
-      <div class="invite-card \${cls}" id="inv-\${inv.code}">
+      <div class="invite-card \${cls}">
         <div class="invite-top">
           <div class="invite-label">\${esc(inv.label)}</div>
           \${badge}
         </div>
-        <div class="invite-code" id="code-\${inv.code}">—</div>
         <div class="invite-meta">Created \${created}\${inv.used ? ' · Used ' + new Date(inv.usedAt).toLocaleDateString() : ''}</div>
         <div class="invite-actions">
           \${!inv.revoked && !inv.used ? \`
@@ -1128,22 +1127,16 @@ function renderInvites(invites) {
       </div>
     \`;
   }).join('');
-  invites.forEach(inv => loadInviteCode(inv.code));
-}
-
-async function loadInviteCode(code) {
-  try {
-    const { vaultCode } = await apiFetch(\`/admin/api/invites/\${code}/qr\`);
-    const el = document.getElementById('code-' + code);
-    if (el) el.textContent = vaultCode;
-  } catch {}
 }
 
 let currentQrCode = '';
 async function showQr(inviteId, label) {
-  const inviteUrl = sessionStorage.getItem('fv_invite_' + inviteId);
-  if (inviteUrl) {
-    await showInviteQr(label, inviteUrl);
+  const stored = sessionStorage.getItem('fv_invite_' + inviteId);
+  if (stored) {
+    try {
+      const { url, qr } = JSON.parse(stored);
+      await showInviteQr(label, url, qr);
+    } catch { alert('QR data corrupted — revoke and create a new invite.'); }
   } else {
     alert('QR code is only available during the session it was created.\\n\\nRevoke this invite and create a new one to get a fresh QR code.');
   }
@@ -1186,9 +1179,9 @@ async function doCreateInvite() {
       method: 'POST',
       body: JSON.stringify({ label, adminPassword }),
     });
-    sessionStorage.setItem('fv_invite_' + result.id, result.inviteUrl);
+    sessionStorage.setItem('fv_invite_' + result.id, JSON.stringify({ url: result.inviteUrl, qr: result.qrDataUrl }));
     hide('m-create');
-    await showInviteQr(label, result.inviteUrl);
+    await showInviteQr(label, result.inviteUrl, result.qrDataUrl);
     const invites = await apiFetch('/admin/api/invites');
     renderInvites(invites);
   } catch (e) { setErr('create-err', e.message); btn.disabled = false; }
@@ -1201,15 +1194,12 @@ function getServerUrl() {
   return window.location.origin.replace(':3001', ':3000');
 }
 
-async function showInviteQr(label, inviteUrl) {
+async function showInviteQr(label, inviteUrl, qrDataUrl) {
   document.getElementById('qr-title').textContent = label;
   document.getElementById('qr-code-text').textContent = inviteUrl;
   document.getElementById('qr-hint').textContent = 'Family member scans this in the FamilyVault app to join. One-time use — expires in 7 days.';
   currentQrCode = inviteUrl;
-  try {
-    const dataUrl = await QRCode.toDataURL(inviteUrl, { width: 300, margin: 2 });
-    document.getElementById('qr-img').src = dataUrl;
-  } catch (e) { console.error('QR generation failed', e); }
+  document.getElementById('qr-img').src = qrDataUrl || '';
   show('m-qr');
 }
 
