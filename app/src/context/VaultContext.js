@@ -128,6 +128,14 @@ export function VaultProvider({ children }) {
     purgeMediaCache();
   }
 
+  async function disconnectAll() {
+    for (let i = 0; i < vaults.length; i++) await eraseToken(i);
+    await AsyncStorage.multiRemove([VAULTS_KEY, ACTIVE_KEY]);
+    setVaults([]);
+    setActiveIndex(0);
+    purgeMediaCache();
+  }
+
   async function removeVault(index) {
     if (vaults.length <= 1) return;
     const newList = vaults.filter((_, i) => i !== index);
@@ -164,6 +172,7 @@ export function VaultProvider({ children }) {
       initFirstVault,
       addVault,
       removeVault,
+      disconnectAll,
     }}>
       {children}
     </VaultContext.Provider>

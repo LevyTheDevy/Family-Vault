@@ -14,7 +14,15 @@ const BACKUP_DIR = process.env.BACKUP_DIR
   ? path.resolve(process.env.BACKUP_DIR)
   : path.join(__dirname, '../backups');
 
-const VAULT_NAME = process.env.VAULT_NAME || 'Family Vault';
+const VAULT_NAME_FILE = path.join(
+  process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(__dirname, '../data'),
+  'vault-name.txt'
+);
+function getVaultName() {
+  try { const n = fs.readFileSync(VAULT_NAME_FILE, 'utf8').trim(); if (n) return n; } catch {}
+  return process.env.VAULT_NAME || 'Family Vault';
+}
+function setVaultName(name) { fs.writeFileSync(VAULT_NAME_FILE, name.trim()); }
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
 fs.mkdirSync(STORAGE_DIR, { recursive: true });
@@ -44,4 +52,4 @@ if (!JWT_SECRET) {
   }
 }
 
-module.exports = { DATA_DIR, STORAGE_DIR, BACKUP_DIR, VAULT_NAME, VAULT_ACCESS_KEY, JWT_SECRET };
+module.exports = { DATA_DIR, STORAGE_DIR, BACKUP_DIR, VAULT_NAME_FILE, getVaultName, setVaultName, VAULT_ACCESS_KEY, JWT_SECRET };

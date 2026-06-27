@@ -6,7 +6,7 @@ const os = require('os');
 const http = require('http');
 const jwt = require('jsonwebtoken');
 
-const { STORAGE_DIR, VAULT_NAME, JWT_SECRET } = require('./config');
+const { STORAGE_DIR, getVaultName, JWT_SECRET } = require('./config');
 
 const authRoutes = require('./routes/auth');
 const postsRoutes = require('./routes/posts');
@@ -43,7 +43,7 @@ app.use(messagesRoutes);
 app.use(gifRoutes);
 app.use(uploadsRoutes);
 
-app.get('/health', (req, res) => res.json({ status: 'ok', vaultName: VAULT_NAME }));
+app.get('/health', (req, res) => res.json({ status: 'ok', vaultName: getVaultName() }));
 
 // ─── Admin panel (port 3001, localhost only — never reachable via tunnel) ────
 const adminApp = express();

@@ -13,6 +13,7 @@ import {
   uploadAvatar, deleteAvatar, getAvatarUrl, renameAvatarCache,
 } from '../utils/api';
 import { clearAuth, updateStoredProfile } from '../utils/storage';
+import { useVault } from '../context/VaultContext';
 import { useTheme } from '../context/ThemeContext';
 
 // Module-level component — must NOT be defined inside SettingsScreen.
@@ -41,6 +42,7 @@ function Sheet({ visible, onClose, colors, children }) {
 
 export default function SettingsScreen({ navigation }) {
   const { colors, mode } = useTheme();
+  const { vaults, activeIndex, removeVault, disconnectAll } = useVault();
   const [name, setName] = useState(getMemberName() || '');
   const [picUri, setPicUri] = useState(getProfilePicUri());
   const [avatarUrl, setAvatarUrl] = useState(() => getAvatarUrl(getMemberName()));
@@ -155,11 +157,34 @@ export default function SettingsScreen({ navigation }) {
   };
 
   // ── Disconnect ─────────────────────────────────────────────────────────────
-  const handleDisconnect = () => {
-    Alert.alert('Disconnect', 'Remove this vault and return to the scan screen?', [
+  const handleDisconnectOne = (index) => {
+    const v = vaults[index];
+    Alert.alert(
+      `Disconnect from ${v?.vaultName || 'vault'}?`,
+      'You will need to scan or enter a code to reconnect.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Disconnect', style: 'destructive', onPress: async () => {
+            if (vaults.length <= 1) {
+              await disconnectAll();
+              await clearAuth();
+              navigation.reset({ index: 0, routes: [{ name: 'Scan' }] });
+            } else {
+              await removeVault(index);
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  const handleDisconnectAll = () => {
+    Alert.alert('Disconnect from all vaults?', 'This removes all vault connections and returns you to the scan screen.', [
       { text: 'Cancel', style: 'cancel' },
       {
-        text: 'Disconnect', style: 'destructive', onPress: async () => {
+        text: 'Disconnect all', style: 'destructive', onPress: async () => {
+          await disconnectAll();
           await clearAuth();
           navigation.reset({ index: 0, routes: [{ name: 'Scan' }] });
         },
@@ -216,27 +241,34 @@ export default function SettingsScreen({ navigation }) {
           </View>
         </View>
 
-        {/* ── Vault ── */}
+        {/* ── Vaults ── */}
         <View style={styles.section}>
-          <Text style={[styles.sectionLabel, { color: colors.textSub }]}>Vault</Text>
+          <Text style={[styles.sectionLabel, { color: colors.textSub }]}>
+            {vaults.length > 1 ? 'Connected Vaults' : 'Vault'}
+          </Text>
           <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <View style={[styles.row, { borderBottomColor: colors.border }]}>
-              <View style={[styles.rowIcon, { backgroundColor: colors.surface }]}>
-                <Feather name="server" size={15} color={colors.textSub} />
+            {vaults.map((v, i) => (
+              <View
+                key={i}
+                style={[styles.row, i < vaults.length - 1 && { borderBottomColor: colors.border, borderBottomWidth: StyleSheet.hairlineWidth }]}
+              >
+                <View style={[styles.rowIcon, { backgroundColor: colors.surface }]}>
+                  <Feather name="server" size={15} color={i === activeIndex ? colors.accent : colors.textSub} />
+                </View>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={[styles.rowLabel, { color: colors.text }]} numberOfLines={1}>
+                    {v.vaultName || 'Family Vault'}
+                    {i === activeIndex ? ' ·' : ''}
+                  </Text>
+                  <Text style={[{ fontSize: 11, color: colors.textSub, marginTop: 1 }]} numberOfLines={1}>
+                    {v.vaultUrl?.replace('http://', '')} · {v.name}
+                  </Text>
+                </View>
+                <TouchableOpacity onPress={() => handleDisconnectOne(i)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                  <Feather name="x-circle" size={17} color={colors.textSub} />
+                </TouchableOpacity>
               </View>
-              <Text style={[styles.rowLabel, { color: colors.text }]}>Address</Text>
-              <Text style={[styles.rowValue, { color: colors.textSub }]} numberOfLines={1}>{vaultUrl.replace('http://', '')}</Text>
-            </View>
-            <View style={styles.row}>
-              <View style={[styles.rowIcon, { backgroundColor: colors.surface }]}>
-                <Feather name="wifi" size={15} color={colors.textSub} />
-              </View>
-              <Text style={[styles.rowLabel, { color: colors.text }]}>Status</Text>
-              <View style={styles.connectedBadge}>
-                <View style={styles.connectedDot} />
-                <Text style={[styles.connectedText, { color: colors.text }]}>Connected</Text>
-              </View>
-            </View>
+            ))}
           </View>
         </View>
 
@@ -259,9 +291,9 @@ export default function SettingsScreen({ navigation }) {
 
         {/* ── Disconnect ── */}
         <View style={styles.section}>
-          <TouchableOpacity style={styles.disconnectBtn} onPress={handleDisconnect} activeOpacity={0.7}>
+          <TouchableOpacity style={styles.disconnectBtn} onPress={handleDisconnectAll} activeOpacity={0.7}>
             <Feather name="log-out" size={16} color="#e53935" />
-            <Text style={styles.disconnectText}>Disconnect from Vault</Text>
+            <Text style={styles.disconnectText}>Disconnect from all vaults</Text>
           </TouchableOpacity>
         </View>
 

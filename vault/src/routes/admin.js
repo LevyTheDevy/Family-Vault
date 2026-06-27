@@ -5,7 +5,7 @@ const os = require('os');
 const path = require('path');
 const fs = require('fs');
 const db = require('../db/sqlite');
-const { STORAGE_DIR, BACKUP_DIR, DATA_DIR, VAULT_NAME, VAULT_ACCESS_KEY, JWT_SECRET } = require('../config');
+const { STORAGE_DIR, BACKUP_DIR, DATA_DIR, getVaultName, setVaultName, VAULT_ACCESS_KEY, JWT_SECRET } = require('../config');
 
 const AVATAR_DIR = path.join(STORAGE_DIR, 'avatars');
 const BACKUP_SETTINGS_FILE = path.join(DATA_DIR, 'backup-settings.json');
@@ -149,7 +149,14 @@ setInterval(runScheduledBackup, 60 * 60 * 1000);
 // ─── API ──────────────────────────────────────────────────────────────────────
 
 router.get('/admin/api/status', (req, res) => {
-  res.json({ setupDone: db.isSetupDone(), vaultName: VAULT_NAME });
+  res.json({ setupDone: db.isSetupDone(), vaultName: getVaultName() });
+});
+
+router.post('/admin/api/vault-name', requireAdmin, (req, res) => {
+  const name = (req.body.vaultName || '').trim();
+  if (!name) return res.status(400).json({ error: 'Vault name cannot be empty' });
+  setVaultName(name);
+  res.json({ ok: true, vaultName: name });
 });
 
 // Simple rate limiter
@@ -167,10 +174,11 @@ function adminRateLimit(req, res, next) {
 
 router.post('/admin/api/setup', adminRateLimit, (req, res) => {
   if (db.isSetupDone()) return res.status(409).json({ error: 'Already configured' });
-  const { name, password } = req.body;
+  const { name, password, vaultName } = req.body;
   if (!name?.trim() || !password) return res.status(400).json({ error: 'Name and password required' });
   if (String(password).length < 8) return res.status(400).json({ error: 'Admin password must be at least 8 characters' });
   try {
+    if (vaultName?.trim()) setVaultName(vaultName.trim());
     db.createAdmin(name.trim(), password);
     const token = jwt.sign({ role: 'admin', name: name.trim() }, JWT_SECRET, { expiresIn: '7d' });
     res.json({ token, name: name.trim() });
@@ -456,7 +464,8 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
       <div class="auth-title">Create admin account</div>
       <div class="auth-sub" style="margin-top:6px">First time setup. Create an account to manage your vault.</div>
     </div>
-    <div class="field"><label>Admin name</label><input id="setup-name" placeholder="e.g. Levi" autocomplete="off"></div>
+    <div class="field"><label>Vault name</label><input id="setup-vault-name" placeholder="e.g. The Smiths" autocomplete="off" value="Family Vault"></div>
+    <div class="field"><label>Admin name</label><input id="setup-name" placeholder="Your name" autocomplete="off"></div>
     <div class="field"><label>Password</label><input id="setup-pass" type="password" placeholder="Choose a strong password (8+ chars)"></div>
     <div id="setup-err" class="err hidden"></div>
     <button class="btn" id="setup-btn" onclick="doSetup()">Create Account</button>
@@ -499,6 +508,21 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
         <div class="stat-card"><div class="stat-val" id="stat-stories">—</div><div class="stat-lbl">Active Dailys</div></div>
         <div class="stat-card"><div class="stat-val" id="stat-messages">—</div><div class="stat-lbl">Messages</div></div>
         <div class="stat-card"><div class="stat-val" id="stat-storage">—</div><div class="stat-lbl">Storage Used</div></div>
+      </div>
+    </div>
+
+    <!-- Vault settings -->
+    <div>
+      <div class="section-head"><span class="section-title">Vault Settings</span></div>
+      <div class="vault-card" style="gap:16px">
+        <div class="vault-info" style="gap:8px">
+          <div class="vault-url-label">Vault Name</div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input id="vault-name-input" style="flex:1;background:var(--input-bg);border:1px solid var(--input-border);border-radius:8px;color:var(--text);font-size:15px;padding:9px 12px;outline:none;min-width:0" placeholder="Family Vault">
+            <button class="btn btn-sm" id="vault-name-btn" onclick="saveVaultName(this)">Save</button>
+          </div>
+          <div style="font-size:11px;color:var(--text-dim)">Shown in the app and on the connection screen.</div>
+        </div>
       </div>
     </div>
 
@@ -659,7 +683,11 @@ async function doSetup() {
   try {
     const { token } = await apiFetch('/admin/api/setup', {
       method: 'POST',
-      body: JSON.stringify({ name: document.getElementById('setup-name').value.trim(), password: document.getElementById('setup-pass').value }),
+      body: JSON.stringify({
+        vaultName: document.getElementById('setup-vault-name').value.trim(),
+        name: document.getElementById('setup-name').value.trim(),
+        password: document.getElementById('setup-pass').value,
+      }),
     });
     TOKEN = token; localStorage.setItem('fv_admin_token', token);
     await loadDashboard();
@@ -689,12 +717,11 @@ async function loadDashboard(status) {
   if (!status) {
     try { status = await apiFetch('/admin/api/status'); } catch {}
   }
-  if (status?.vaultName) {
-    document.getElementById('vault-name-chip').textContent = status.vaultName;
-    document.getElementById('vault-name-chip').style.display = '';
-  } else {
-    document.getElementById('vault-name-chip').style.display = 'none';
-  }
+  const vn = status?.vaultName || '';
+  document.getElementById('vault-name-chip').textContent = vn;
+  document.getElementById('vault-name-chip').style.display = vn ? '' : 'none';
+  if (document.getElementById('vault-name-input') && !document.getElementById('vault-name-input').value)
+    document.getElementById('vault-name-input').value = vn;
 
   const [vaultData, members, invites, urlData] = await Promise.all([
     apiFetch('/admin/api/vault-qr'),
@@ -708,6 +735,21 @@ async function loadDashboard(status) {
   renderInvites(invites);
   loadStats();
   loadBackups();
+}
+
+// ── Vault name ───────────────────────────────────────────────────────────────
+
+async function saveVaultName(btn) {
+  const name = document.getElementById('vault-name-input').value.trim();
+  if (!name) { alert('Enter a vault name'); return; }
+  const orig = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Saving…';
+  try {
+    await apiFetch('/admin/api/vault-name', { method: 'POST', body: JSON.stringify({ vaultName: name }) });
+    document.getElementById('vault-name-chip').textContent = name;
+    btn.textContent = '✓ Saved';
+    setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 1800);
+  } catch (e) { alert('Error: ' + e.message); btn.textContent = orig; btn.disabled = false; }
 }
 
 // ── Server URL ────────────────────────────────────────────────────────────────
