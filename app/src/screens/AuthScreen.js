@@ -4,7 +4,7 @@ import {
   Alert, ActivityIndicator, KeyboardAvoidingView, Platform,
   ScrollView, useColorScheme,
 } from 'react-native';
-import { setVault } from '../utils/api';
+import { setVault, getStoredAuthHeader } from '../utils/api';
 import { saveAuth } from '../utils/storage';
 import { useVault } from '../context/VaultContext';
 
@@ -67,7 +67,10 @@ export default function AuthScreen({ route, navigation }) {
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    apiFetch(`${base}/members`, accessKey ? { headers: { 'x-vault-key': accessKey } } : {})
+    const memberHeaders = accessKey
+      ? { 'x-vault-key': accessKey }
+      : getStoredAuthHeader();
+    apiFetch(`${base}/members`, { headers: memberHeaders })
       .then((data) => { setMembers(data); setLoadingMembers(false); })
       .catch((e) => { setVaultError(`Cannot reach vault\n${vaultUrl}\n\n${e.message}`); setLoadingMembers(false); });
   }, []);

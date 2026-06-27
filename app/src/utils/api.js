@@ -4,6 +4,7 @@ let _encryptFn = null, _decryptFn = null;
 // Set by VaultContext after key derivation — bound closures with the vault key baked in
 export const setVaultCrypto = (encFn, decFn) => { _encryptFn = encFn; _decryptFn = decFn; };
 export const clearVaultCrypto = () => { _encryptFn = null; _decryptFn = null; };
+export const getStoredAuthHeader = () => _token ? { Authorization: `Bearer ${_token}` } : {};
 
 async function encryptMsg(text) {
   if (!text || !_encryptFn) return text;
