@@ -61,12 +61,89 @@ docker compose up -d
 
 ## Accessing from outside your home
 
-By default the server is only accessible on your home network. To let family members connect remotely, set up a Cloudflare Tunnel (free):
+By default the server is only accessible on your home network. To let family members connect from anywhere, use a **Cloudflare Tunnel** — it's free and doesn't require opening firewall ports or a static IP.
 
-1. Create a free account at cloudflare.com
-2. Follow the Cloudflare Tunnel setup guide to point a domain or subdomain at `localhost:3000`
+### Step 1 — Create a free Cloudflare account
 
-The app will work over the tunnel the same way it works locally.
+Go to [cloudflare.com](https://cloudflare.com) and sign up for a free account.
+
+### Step 2 — Add a domain to Cloudflare
+
+You need a domain name (e.g. `myfamily.com`). You can register one through Cloudflare for ~$10/year, or transfer an existing one. In the Cloudflare dashboard, click **Add a site** and follow the steps.
+
+### Step 3 — Install cloudflared on your server
+
+On the machine running FamilyVault:
+
+**Raspberry Pi / Linux:**
+```bash
+curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64 -o cloudflared
+sudo mv cloudflared /usr/local/bin/
+sudo chmod +x /usr/local/bin/cloudflared
+```
+For x86 Linux, replace `arm64` with `amd64`.
+
+**Mac:**
+```bash
+brew install cloudflared
+```
+
+**Windows:**
+Download the installer from [github.com/cloudflare/cloudflared/releases](https://github.com/cloudflare/cloudflared/releases).
+
+### Step 4 — Log in
+
+```bash
+cloudflared tunnel login
+```
+
+This opens a browser window. Select your domain and authorise it.
+
+### Step 5 — Create a tunnel
+
+```bash
+cloudflared tunnel create familyvault
+```
+
+Note the tunnel ID it prints — you'll need it in the next step.
+
+### Step 6 — Create the config file
+
+Create `~/.cloudflared/config.yml` with:
+
+```yaml
+tunnel: YOUR_TUNNEL_ID
+credentials-file: /root/.cloudflared/YOUR_TUNNEL_ID.json
+
+ingress:
+  - hostname: vault.yourdomain.com
+    service: http://localhost:3000
+  - service: http_status:404
+```
+
+Replace `YOUR_TUNNEL_ID` with the ID from Step 5, and `vault.yourdomain.com` with the subdomain you want to use.
+
+### Step 7 — Route DNS
+
+```bash
+cloudflared tunnel route dns familyvault vault.yourdomain.com
+```
+
+This automatically creates the DNS record in Cloudflare.
+
+### Step 8 — Run the tunnel
+
+```bash
+cloudflared tunnel run familyvault
+```
+
+To start it automatically on boot (Linux/Pi):
+```bash
+sudo cloudflared service install
+sudo systemctl start cloudflared
+```
+
+Your vault is now accessible at `https://vault.yourdomain.com` from anywhere in the world. Use this URL in the app instead of your local IP address.
 
 ---
 
