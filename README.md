@@ -100,4 +100,4 @@ Scan the QR code in the admin panel with the mobile app to connect to your serve
 
 ## License
 
-MIT
+PolyForm Noncommercial 1.0.0 — free to use, modify, and self-host for personal or organizational non-commercial purposes. Commercial use (selling the software or offering paid services built on it) is not permitted. See [LICENSE](LICENSE) for full terms.
