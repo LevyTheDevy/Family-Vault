@@ -384,8 +384,13 @@ export const getAvatarUrl = (name) => {
 export const fetchFamilyMembers = () =>
   req(`${_url}/members`, { headers: h() }).then(syncAvatarVersions);
 
-export const fetchConversations = () =>
-  req(`${_url}/conversations`, { headers: h() });
+export const fetchConversations = async () => {
+  const convos = await req(`${_url}/conversations`, { headers: h() });
+  return Promise.all(convos.map(async (c) => {
+    if (!c.lastMessage?.text) return c;
+    return { ...c, lastMessage: { ...c.lastMessage, text: await decryptMsg(c.lastMessage.text) } };
+  }));
+};
 
 export const createConversation = (name, memberNames = []) =>
   req(`${_url}/conversations`, {
