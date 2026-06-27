@@ -7,7 +7,9 @@
 import { pbkdf2Async } from '@noble/hashes/pbkdf2';
 import { sha256 } from '@noble/hashes/sha2';
 import { gcm } from '@noble/ciphers/aes';
-import nacl from 'tweetnacl';
+import * as ExpoCrypto from 'expo-crypto';
+
+const getRandomBytes = (n) => ExpoCrypto.getRandomValues(new Uint8Array(n));
 
 const toHex = buf =>
   Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
@@ -22,7 +24,7 @@ async function deriveKey(passwordStr, saltHex) {
 
 // Format: hex(iv[12]) + hex(ciphertext+tag) — matches server-side Node.js AES-GCM
 function aesgcmEncrypt(data, keyBytes) {
-  const iv = nacl.randomBytes(12);
+  const iv = getRandomBytes(12);
   const ct = gcm(keyBytes, iv).encrypt(data instanceof Uint8Array ? data : new Uint8Array(data));
   return toHex(iv) + toHex(ct);
 }
@@ -36,7 +38,7 @@ function aesgcmDecrypt(encHex, keyBytes) {
 // ── Key management ─────────────────────────────────────────────────────────────
 
 export async function wrapVaultKey(vaultKey, password) {
-  const kdfSalt = toHex(nacl.randomBytes(32));
+  const kdfSalt = toHex(getRandomBytes(32));
   const keyBytes = await deriveKey(password, kdfSalt);
   const wrappedVaultKey = aesgcmEncrypt(vaultKey, keyBytes);
   return { kdfSalt, wrappedVaultKey };
