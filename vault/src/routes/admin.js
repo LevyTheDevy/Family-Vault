@@ -720,17 +720,23 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 
 <script>
 const api = window.location.origin;
-let TOKEN = localStorage.getItem('fv_admin_token');
+// Use sessionStorage so closing the tab always requires re-login (and re-derives vault key)
+let TOKEN = sessionStorage.getItem('fv_admin_token');
 
 // ── E2E crypto (Web Crypto API — PBKDF2 + AES-256-GCM) ───────────────────────
-let VAULT_KEY = null; // Uint8Array(32), held in memory for this session
+// VAULT_KEY is cached in sessionStorage (hex) so page refreshes work within a tab session
+const fromHex = s => new Uint8Array(s.match(/.{2}/g).map(b => parseInt(b,16)));
+const toHex   = buf => Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
+
+let VAULT_KEY = (() => {
+  try { const k = sessionStorage.getItem('fv_vault_key'); return k ? fromHex(k) : null; } catch { return null; }
+})();
 
 const toHex = buf => Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
 const fromHex = s => new Uint8Array(s.match(/.{2}/g).map(b => parseInt(b,16)));
 
 async function pbkdf2Key(password, saltHex) {
-  const enc = new TextEncoder();
-  const km = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveKey']);
+  const km = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveKey']);
   return crypto.subtle.deriveKey(
     { name: 'PBKDF2', salt: fromHex(saltHex), iterations: 600000, hash: 'SHA-256' },
     km, { name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']
@@ -776,10 +782,11 @@ async function initVaultKey(password) {
     try {
       VAULT_KEY = await unwrapVaultKey(vc.kdfSalt, vc.wrappedVaultKey, password);
     } catch {
-      // Wrong password shouldn't happen (login already verified), but handle gracefully
       console.warn('[crypto] Could not derive vault key — admin password may have changed');
     }
   }
+  // Cache in sessionStorage so page refreshes within the same tab don't lose the key
+  if (VAULT_KEY) sessionStorage.setItem('fv_vault_key', toHex(VAULT_KEY));
 }
 
 function setErr(id, msg) {
@@ -808,9 +815,10 @@ async function init() {
   try {
     const status = await apiFetch('/admin/api/status');
     if (!status.setupDone) { showView('v-setup'); return; }
-    if (TOKEN) {
+    // Only skip login if we have both a valid session token AND the vault key (from sessionStorage)
+    if (TOKEN && VAULT_KEY) {
       try { await loadDashboard(status); return; }
-      catch { TOKEN = null; localStorage.removeItem('fv_admin_token'); }
+      catch { TOKEN = null; VAULT_KEY = null; sessionStorage.removeItem('fv_admin_token'); sessionStorage.removeItem('fv_vault_key'); }
     }
     showView('v-login');
   } catch { showView('v-login'); }
@@ -829,7 +837,7 @@ async function doSetup() {
         password,
       }),
     });
-    TOKEN = token; localStorage.setItem('fv_admin_token', token);
+    TOKEN = token; sessionStorage.setItem('fv_admin_token', token);
     await initVaultKey(password);
     await loadDashboard();
   } catch (e) { setErr('setup-err', e.message); btn.disabled = false; }
@@ -844,14 +852,16 @@ async function doLogin() {
       method: 'POST',
       body: JSON.stringify({ name: document.getElementById('login-name').value.trim(), password }),
     });
-    TOKEN = token; localStorage.setItem('fv_admin_token', token);
+    TOKEN = token; sessionStorage.setItem('fv_admin_token', token);
     await initVaultKey(password);
     await loadDashboard();
   } catch (e) { setErr('login-err', e.message); btn.disabled = false; }
 }
 
 function doLogout() {
-  TOKEN = null; localStorage.removeItem('fv_admin_token');
+  TOKEN = null; VAULT_KEY = null;
+  sessionStorage.removeItem('fv_admin_token');
+  sessionStorage.removeItem('fv_vault_key');
   showView('v-login');
 }
 
