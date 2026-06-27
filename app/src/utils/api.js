@@ -118,13 +118,21 @@ export const loginVault = (url, name, password) =>
   });
 
 // Posts
-export const fetchPosts = ({ limit = 20, offset = 0 } = {}) =>
-  req(`${_url}/posts?limit=${limit}&offset=${offset}`, { headers: h() })
-  .then(({ posts, total }) => ({
-    posts: posts.map(addTokenToPost),
-    total,
-    hasMore: offset + posts.length < total,
-  }));
+async function decryptPost(p) {
+  return {
+    ...p,
+    caption: await decryptMsg(p.caption),
+    comments: p.comments
+      ? await Promise.all(p.comments.map(async (c) => ({ ...c, text: await decryptMsg(c.text) })))
+      : p.comments,
+  };
+}
+
+export const fetchPosts = async ({ limit = 20, offset = 0 } = {}) => {
+  const { posts, total } = await req(`${_url}/posts?limit=${limit}&offset=${offset}`, { headers: h() });
+  const decrypted = await Promise.all(posts.map((p) => decryptPost(addTokenToPost(p))));
+  return { posts: decrypted, total, hasMore: offset + decrypted.length < total };
+};
 
 export const deletePost = (id) =>
   req(`${_url}/posts/${id}`, { method: 'DELETE', headers: h() });
@@ -135,12 +143,14 @@ export const likePost = (id) =>
 export const savePost = (id) =>
   req(`${_url}/posts/${id}/save`, { method: 'POST', headers: h() });
 
-export const addComment = (id, text, gifUrl = null, imageX = null, imageY = null, imageIndex = 0) =>
-  req(`${_url}/posts/${id}/comments`, {
-    method: 'POST',
-    headers: jh(),
-    body: JSON.stringify({ text, gifUrl, imageX, imageY, imageIndex }),
+export const addComment = async (id, text, gifUrl = null, imageX = null, imageY = null, imageIndex = 0) => {
+  const encText = await encryptMsg(text);
+  const comment = await req(`${_url}/posts/${id}/comments`, {
+    method: 'POST', headers: jh(),
+    body: JSON.stringify({ text: encText, gifUrl, imageX, imageY, imageIndex }),
   });
+  return { ...comment, text: await decryptMsg(comment.text) };
+};
 
 export const deleteComment = (postId, commentId) =>
   req(`${_url}/posts/${postId}/comments/${commentId}`, { method: 'DELETE', headers: h() });
@@ -152,10 +162,11 @@ export async function uploadPhotos(imageUris, caption = '', collectionId = null)
   uris.forEach((uri, i) => {
     fd.append('photos', { uri, type: 'image/jpeg', name: `photo${i}.jpg` });
   });
-  if (caption) fd.append('caption', caption);
+  const encCaption = await encryptMsg(caption);
+  if (encCaption) fd.append('caption', encCaption);
   const post = await req(`${_url}/posts`, { method: 'POST', headers: h(), body: fd });
   if (collectionId) await addToCollection(collectionId, post.id).catch(() => {});
-  return addTokenToPost(post);
+  return decryptPost(addTokenToPost(post));
 }
 
 export async function uploadVideo(videoUri, thumbnailUri = null, caption = '', durationSecs = null, collectionId = null, onProgress = null) {
@@ -179,13 +190,14 @@ export async function uploadVideo(videoUri, thumbnailUri = null, caption = '', d
   if (thumbnailUri) {
     fd.append('thumbnail', { uri: thumbnailUri, type: 'image/jpeg', name: 'thumbnail.jpg' });
   }
-  if (caption) fd.append('caption', caption);
+  const encCaption = await encryptMsg(caption);
+  if (encCaption) fd.append('caption', encCaption);
   if (durationSecs != null) fd.append('durationSecs', String(durationSecs));
   if (onProgress) onProgress(0.5); // indeterminate for small uploads
   const post = await req(`${_url}/posts`, { method: 'POST', headers: h(), body: fd });
   if (collectionId) await addToCollection(collectionId, post.id).catch(() => {});
   if (onProgress) onProgress(1);
-  return addTokenToPost(post);
+  return decryptPost(addTokenToPost(post));
 }
 
 // Chunked upload for large videos (>90MB) — bypasses Cloudflare's 100MB request body limit
@@ -250,12 +262,13 @@ async function uploadVideoChunked(videoUri, thumbnailUri, caption, durationSecs,
   if (onProgress) onProgress(1);
 
   // 5. Create post from uploaded filenames
+  const encCaption = await encryptMsg(caption);
   const post = await req(`${_url}/posts/from-upload`, {
     method: 'POST', headers: jh(),
-    body: JSON.stringify({ videoFilename, thumbnailFilename, caption, durationSecs }),
+    body: JSON.stringify({ videoFilename, thumbnailFilename, caption: encCaption, durationSecs }),
   });
   if (collectionId) await addToCollection(collectionId, post.id).catch(() => {});
-  return addTokenToPost(post);
+  return decryptPost(addTokenToPost(post));
 }
 
 export async function sendChatMedia(conversationId, uri, mimeType) {
@@ -270,7 +283,10 @@ export async function sendChatMedia(conversationId, uri, mimeType) {
 export const uploadPhoto = (uri, caption, colId) => uploadPhotos([uri], caption, colId);
 
 // Stories
-export const fetchStories = () => req(`${_url}/stories`, { headers: h() }).then((s) => s.map(addTokenToStory));
+export const fetchStories = async () => {
+  const stories = await req(`${_url}/stories`, { headers: h() });
+  return Promise.all(stories.map(async (s) => ({ ...addTokenToStory(s), caption: await decryptMsg(s.caption) })));
+};
 
 export const deleteStory = (id) =>
   req(`${_url}/stories/${id}`, { method: 'DELETE', headers: h() });
@@ -279,8 +295,10 @@ export async function uploadStory(imageUri, durationHours, caption = '') {
   const fd = new FormData();
   fd.append('photo', { uri: imageUri, type: 'image/jpeg', name: 'story.jpg' });
   fd.append('durationHours', String(durationHours));
-  if (caption) fd.append('caption', caption);
-  return req(`${_url}/stories`, { method: 'POST', headers: h(), body: fd }).then(addTokenToStory);
+  const encCaption = await encryptMsg(caption);
+  if (encCaption) fd.append('caption', encCaption);
+  const story = await req(`${_url}/stories`, { method: 'POST', headers: h(), body: fd });
+  return { ...addTokenToStory(story), caption: await decryptMsg(story.caption) };
 }
 
 // Collections
@@ -294,8 +312,10 @@ export const createCollection = (name) =>
 export const deleteCollection = (id) =>
   req(`${_url}/collections/${id}`, { method: 'DELETE', headers: h() });
 
-export const fetchCollectionPosts = (id) =>
-  req(`${_url}/collections/${id}/posts`, { headers: h() }).then((posts) => posts.map(addTokenToPost));
+export const fetchCollectionPosts = async (id) => {
+  const posts = await req(`${_url}/collections/${id}/posts`, { headers: h() });
+  return Promise.all(posts.map((p) => decryptPost(addTokenToPost(p))));
+};
 
 export const addToCollection = (colId, postId) =>
   req(`${_url}/collections/${colId}/posts`, {
