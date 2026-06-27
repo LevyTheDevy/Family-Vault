@@ -76,7 +76,7 @@ async function serverWrapKey(keyBuf, password) {
 
 async function getOrInitVaultKey(adminPassword) {
   const vc = db.getVaultCrypto();
-  if (!vc || !vc.initialized) {
+  if (!vc) {
     const vaultKey = crypto.randomBytes(32);
     const wrapped = await serverWrapKey(vaultKey, adminPassword);
     db.setVaultCrypto(wrapped.kdfSalt, wrapped.wrappedVaultKey);
