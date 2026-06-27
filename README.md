@@ -2,6 +2,12 @@
 
 A self-hosted private social media app for families. Photos, videos, stories, and group chat — stored on hardware you own, with no third-party cloud.
 
+## Download the App
+
+**Android:** Download the latest APK from the [Releases page](https://github.com/LevyTheDevy/Family-Vault/releases/latest). Enable *Install from unknown sources* in your Android settings, then open the file to install.
+
+**iOS:** See [Building the App](#building-the-app) below.
+
 ---
 
 ## Quick Start
