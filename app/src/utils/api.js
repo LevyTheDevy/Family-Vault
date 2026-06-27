@@ -1,18 +1,19 @@
-import { encryptText, decryptText } from './crypto';
+let _url = null, _token = null, _name = null, _pic = null;
+let _encryptFn = null, _decryptFn = null;
 
-let _url = null, _token = null, _name = null, _pic = null, _vaultKey = null;
-
-export const setVaultKey = (key) => { _vaultKey = key; };
+// Set by VaultContext after key derivation — bound closures with the vault key baked in
+export const setVaultCrypto = (encFn, decFn) => { _encryptFn = encFn; _decryptFn = decFn; };
+export const clearVaultCrypto = () => { _encryptFn = null; _decryptFn = null; };
 
 async function encryptMsg(text) {
-  if (!text || !_vaultKey) return text;
-  try { return 'enc:' + await encryptText(text, _vaultKey); } catch { return text; }
+  if (!text || !_encryptFn) return text;
+  try { return 'enc:' + await _encryptFn(text); } catch { return text; }
 }
 
 async function decryptMsg(text) {
   if (!text || !text.startsWith('enc:')) return text;
-  if (!_vaultKey) return '🔒 Encrypted';
-  try { return await decryptText(text.slice(4), _vaultKey); } catch { return '🔒 Encrypted'; }
+  if (!_decryptFn) return '🔒 Encrypted';
+  try { return await _decryptFn(text.slice(4)); } catch { return '🔒 Encrypted'; }
 }
 const _avatarV = {};
 

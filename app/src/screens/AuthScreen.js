@@ -51,9 +51,10 @@ async function apiFetch(url, options = {}) {
 }
 
 export default function AuthScreen({ route, navigation }) {
-  const { vaultUrl, inviteCode: prefilledInvite, addMode = false, accessKey = null } = route.params;
+  const { vaultUrl: paramVaultUrl, inviteCode: prefilledInvite, addMode = false, accessKey = null } = route.params || {};
+  const { initFirstVault, addVault: addVaultCtx, deriveAndStoreVaultKey, activeVault } = useVault();
+  const vaultUrl = paramVaultUrl || activeVault?.vaultUrl || '';
   const base = BASE_URL(vaultUrl);
-  const { initFirstVault, addVault: addVaultCtx, deriveAndStoreVaultKey } = useVault();
   const t = useTheme();
 
   const [members, setMembers] = useState([]);
@@ -137,7 +138,7 @@ export default function AuthScreen({ route, navigation }) {
       });
       // Derive vault key from server-returned crypto params (non-blocking, best-effort)
       if (data.kdfSalt && data.wrappedVaultKey) {
-        deriveAndStoreVaultKey(data.kdfSalt, data.wrappedVaultKey, signinPassword).catch(() => {});
+        await deriveAndStoreVaultKey(data.kdfSalt, data.wrappedVaultKey, signinPassword);
       }
       await onSuccess(data.token, data.name, null, data.requiresPasswordReset || false);
     } catch (e) {

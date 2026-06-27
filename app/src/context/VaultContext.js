@@ -2,9 +2,9 @@ import React, { createContext, useContext, useState, useEffect, useRef } from 'r
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import * as FileSystem from 'expo-file-system/legacy';
-import { setVault, setVaultKey } from '../utils/api';
+import { setVault, setVaultCrypto, clearVaultCrypto } from '../utils/api';
 import { loadAuth } from '../utils/storage';
-import { unwrapVaultKey } from '../utils/crypto';
+import { unwrapVaultKey, encryptText, decryptText } from '../utils/crypto';
 
 const VaultContext = createContext({});
 export const useVault = () => useContext(VaultContext);
@@ -160,20 +160,19 @@ export function VaultProvider({ children }) {
     setVaults([]);
     setActiveIndex(0);
     vaultKeyRef.current = null;
-    setVaultKey(null);
+    clearVaultCrypto();
     purgeMediaCache();
   }
 
   /** Called after login/join when the server returns kdfSalt + wrappedVaultKey */
   async function deriveAndStoreVaultKey(kdfSalt, wrappedVaultKey, password) {
     if (!kdfSalt || !wrappedVaultKey || !password) return;
-    try {
-      const key = await unwrapVaultKey(kdfSalt, wrappedVaultKey, password);
-      vaultKeyRef.current = key;
-      setVaultKey(key);
-    } catch (e) {
-      console.warn('[crypto] vault key derivation failed:', e.message);
-    }
+    const key = await unwrapVaultKey(kdfSalt, wrappedVaultKey, password);
+    vaultKeyRef.current = key;
+    setVaultCrypto(
+      (text) => encryptText(text, key),
+      (hex) => decryptText(hex, key),
+    );
   }
 
   /** Returns the current in-memory vault key (Uint8Array(32) or null) */

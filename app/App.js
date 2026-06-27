@@ -186,7 +186,7 @@ function AppInner() {
   useEffect(() => {
     if (!ready) return;
     FileSystem.deleteAsync(FileSystem.cacheDirectory + 'fv/', { idempotent: true }).catch(() => {});
-    setInitialRoute(vaults.length > 0 ? 'Main' : 'Scan');
+    setInitialRoute(vaults.length > 0 ? 'Auth' : 'Scan');
   }, [ready]);
 
   if (!initialRoute) {
