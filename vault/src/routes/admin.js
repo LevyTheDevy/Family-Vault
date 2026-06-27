@@ -357,9 +357,9 @@ router.post('/admin/api/invites', requireAdmin, async (req, res) => {
   }
 });
 
-router.delete('/admin/api/invites/:code', requireAdmin, (req, res) => {
+router.delete('/admin/api/invites/:id', requireAdmin, (req, res) => {
   try {
-    db.revokeInviteLink(req.params.code);
+    db.revokeInviteLinkById(Number(req.params.id));
     res.json({ ok: true });
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
@@ -1119,7 +1119,7 @@ function renderInvites(invites) {
         <div class="invite-actions">
           \${!inv.revoked && !inv.used ? \`
             <button class="btn btn-sm" onclick="showQr('\${inv.id}','\${esc(inv.label)}')">Show QR</button>
-            <button class="btn btn-danger btn-sm" onclick="revokeInvite('\${inv.code}')">Revoke</button>
+            <button class="btn btn-danger btn-sm" onclick="revokeInvite('\${inv.id}')">Revoke</button>
           \` : \`
             \${!inv.revoked ? \`<button class="btn btn-outline btn-sm" onclick="showQr('\${inv.id}','\${esc(inv.label)}')">View QR</button>\` : ''}
           \`}
@@ -1203,10 +1203,10 @@ async function showInviteQr(label, inviteUrl, qrDataUrl) {
   show('m-qr');
 }
 
-async function revokeInvite(code) {
+async function revokeInvite(id) {
   if (!confirm('Revoke this invite code? It cannot be undone.')) return;
   try {
-    await apiFetch(\`/admin/api/invites/\${code}\`, { method: 'DELETE' });
+    await apiFetch(\`/admin/api/invites/\${id}\`, { method: 'DELETE' });
     const invites = await apiFetch('/admin/api/invites');
     renderInvites(invites);
   } catch (e) { alert('Error: ' + e.message); }

@@ -453,6 +453,13 @@ const db = {
     sql.prepare('UPDATE invite_links SET revoked = 1 WHERE code = ?').run(code.toUpperCase());
   },
 
+  revokeInviteLinkById(id) {
+    const l = sql.prepare('SELECT * FROM invite_links WHERE id = ?').get(id);
+    if (!l) throw new Error('Invite not found');
+    if (l.used) throw new Error('This invite has already been used');
+    sql.prepare('UPDATE invite_links SET revoked = 1 WHERE id = ?').run(id);
+  },
+
   // ── Members ────────────────────────────────────────────────────────────────
   getInviteCode() {
     return sql.prepare("SELECT value FROM meta WHERE key = 'legacy_invite_code'").get()?.value;
