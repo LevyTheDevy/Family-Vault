@@ -46,9 +46,9 @@ function requireAdmin(req, res, next) {
 
 // ─── Server-side E2E crypto helpers ───────────────────────────────────────────
 
-function pbkdf2Async(password, saltHex) {
+function pbkdf2Async(password, saltHex, iterations = 600000) {
   return new Promise((resolve, reject) => {
-    crypto.pbkdf2(Buffer.from(password), Buffer.from(saltHex, 'hex'), 600000, 32, 'sha256',
+    crypto.pbkdf2(Buffer.from(password), Buffer.from(saltHex, 'hex'), iterations, 32, 'sha256',
       (err, key) => err ? reject(err) : resolve(key));
   });
 }
@@ -345,7 +345,7 @@ router.post('/admin/api/invites', requireAdmin, async (req, res) => {
     const rawTokenHex = rawToken.toString('hex');
     const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
     const inviteKdfSalt = crypto.randomBytes(32).toString('hex');
-    const inviteAesKey = await pbkdf2Async(rawTokenHex, inviteKdfSalt);
+    const inviteAesKey = await pbkdf2Async(rawTokenHex, inviteKdfSalt, 1);
     const inviteWrappedVaultKey = aesgcmEncrypt(vaultKey, inviteAesKey);
     const expiresAt = new Date(Date.now() + Number(expiresInDays) * 86400000).toISOString();
     const invite = db.createCryptoInvite(label.trim(), req.admin.name, tokenHash, inviteKdfSalt, inviteWrappedVaultKey, expiresAt);

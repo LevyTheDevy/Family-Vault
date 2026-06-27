@@ -16,10 +16,10 @@ const toHex = buf =>
 const fromHex = s =>
   new Uint8Array(s.match(/.{2}/g).map(b => parseInt(b, 16)));
 
-async function deriveKey(passwordStr, saltHex) {
+async function deriveKey(passwordStr, saltHex, iterations = 10000) {
   const passBytes = new TextEncoder().encode(passwordStr);
   const saltBytes = fromHex(saltHex);
-  return pbkdf2Async(sha256, passBytes, saltBytes, { c: 600000, dkLen: 32 });
+  return pbkdf2Async(sha256, passBytes, saltBytes, { c: iterations, dkLen: 32 });
 }
 
 // Format: hex(iv[12]) + hex(ciphertext+tag) — matches server-side Node.js AES-GCM
@@ -50,7 +50,7 @@ export async function unwrapVaultKey(kdfSalt, wrappedVaultKey, password) {
 }
 
 export async function unwrapInviteVaultKey(inviteKdfSalt, inviteWrappedVaultKey, rawTokenHex) {
-  const keyBytes = await deriveKey(rawTokenHex, inviteKdfSalt);
+  const keyBytes = await deriveKey(rawTokenHex, inviteKdfSalt, 1); // token has 256-bit entropy; iteration count irrelevant
   return aesgcmDecrypt(inviteWrappedVaultKey, keyBytes);
 }
 
