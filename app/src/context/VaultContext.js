@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useRef } from 'r
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import * as FileSystem from 'expo-file-system/legacy';
-import { setVault } from '../utils/api';
+import { setVault, setVaultKey } from '../utils/api';
 import { loadAuth } from '../utils/storage';
 import { unwrapVaultKey } from '../utils/crypto';
 
@@ -160,6 +160,7 @@ export function VaultProvider({ children }) {
     setVaults([]);
     setActiveIndex(0);
     vaultKeyRef.current = null;
+    setVaultKey(null);
     purgeMediaCache();
   }
 
@@ -167,7 +168,9 @@ export function VaultProvider({ children }) {
   async function deriveAndStoreVaultKey(kdfSalt, wrappedVaultKey, password) {
     if (!kdfSalt || !wrappedVaultKey || !password) return;
     try {
-      vaultKeyRef.current = await unwrapVaultKey(kdfSalt, wrappedVaultKey, password);
+      const key = await unwrapVaultKey(kdfSalt, wrappedVaultKey, password);
+      vaultKeyRef.current = key;
+      setVaultKey(key);
     } catch (e) {
       console.warn('[crypto] vault key derivation failed:', e.message);
     }

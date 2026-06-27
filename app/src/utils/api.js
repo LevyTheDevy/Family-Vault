@@ -1,4 +1,19 @@
-let _url = null, _token = null, _name = null, _pic = null;
+import { encryptText, decryptText } from './crypto';
+
+let _url = null, _token = null, _name = null, _pic = null, _vaultKey = null;
+
+export const setVaultKey = (key) => { _vaultKey = key; };
+
+async function encryptMsg(text) {
+  if (!text || !_vaultKey) return text;
+  try { return 'enc:' + await encryptText(text, _vaultKey); } catch { return text; }
+}
+
+async function decryptMsg(text) {
+  if (!text || !text.startsWith('enc:')) return text;
+  if (!_vaultKey) return '🔒 Encrypted';
+  try { return await decryptText(text.slice(4), _vaultKey); } catch { return '🔒 Encrypted'; }
+}
 const _avatarV = {};
 
 // Rebase a server-returned URL to use the client's connected base (_url).
@@ -369,13 +384,18 @@ export const addConversationMember = (id, memberName) =>
 export const removeConversationMember = (id, memberName) =>
   req(`${_url}/conversations/${id}/members/${encodeURIComponent(memberName)}`, { method: 'DELETE', headers: h() });
 
-export const fetchMessages = (conversationId) =>
-  req(`${_url}/conversations/${conversationId}/messages`, { headers: h() }).then((msgs) => msgs.map(addTokenToMessage));
+export const fetchMessages = async (conversationId) => {
+  const msgs = await req(`${_url}/conversations/${conversationId}/messages`, { headers: h() });
+  const withTokens = msgs.map(addTokenToMessage);
+  return Promise.all(withTokens.map(async (m) => ({ ...m, text: await decryptMsg(m.text) })));
+};
 
-export const sendMessage = (conversationId, text, gifUrl = null, replyToId = null, postRef = null) =>
-  req(`${_url}/conversations/${conversationId}/messages`, {
-    method: 'POST', headers: jh(), body: JSON.stringify({ text, gifUrl, replyToId, postRef }),
+export const sendMessage = async (conversationId, text, gifUrl = null, replyToId = null, postRef = null) => {
+  const encText = await encryptMsg(text);
+  return req(`${_url}/conversations/${conversationId}/messages`, {
+    method: 'POST', headers: jh(), body: JSON.stringify({ text: encText, gifUrl, replyToId, postRef }),
   });
+};
 
 export const reactToMessage = (conversationId, messageId, emoji) =>
   req(`${_url}/conversations/${conversationId}/messages/${messageId}/react`, {
