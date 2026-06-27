@@ -484,7 +484,7 @@ function adminPage() {
   --btn-outline-color:#0d0d0d;--btn-outline-border:#ccc;
   --section-lbl:#aaa;--stat-lbl:#aaa;--td-color:#666;
   --empty-color:#ccc;--avatar-bg:#e8e8e8;
-  --overlay:rgba(0,0,0,.92);--modal-bg:#fff;--modal-border:#e0e0e0;
+  --overlay:rgba(0,0,0,1);--modal-bg:#fff;--modal-border:#e0e0e0;
   --topbar-border:#eee;--chip-color:#999;--chip-border:#e0e0e0;
   --row-hover:#f9f9f9;
 }
@@ -497,7 +497,7 @@ function adminPage() {
     --btn-outline-color:#fff;--btn-outline-border:#333;
     --section-lbl:#444;--stat-lbl:#555;--td-color:#aaa;
     --empty-color:#333;--avatar-bg:#1e1e1e;
-    --overlay:rgba(0,0,0,.95);--modal-bg:#0d0d0d;--modal-border:#222;
+    --overlay:rgba(0,0,0,1);--modal-bg:#0d0d0d;--modal-border:#222;
     --topbar-border:#111;--chip-color:#444;--chip-border:#1e1e1e;
     --row-hover:#0a0a0a;
   }

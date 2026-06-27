@@ -1,12 +1,7 @@
 'use strict';
-/**
- * E2E crypto — PBKDF2-SHA256 (600k iters) + AES-256-GCM via Web Crypto API.
- * Available in Expo SDK 54+ (Hermes exposes global.crypto.subtle).
- * Matches the algorithm used in the admin panel browser.
- *
- * Encoding: all binary stored/transmitted as lowercase hex strings.
- * Wrapped vault key format: hex(iv[12]) + hex(ciphertext+tag[48]) = 120 hex chars
- */
+
+// Hermes (React Native) exposes Web Crypto on globalThis, not as a bare global
+const wc = globalThis.crypto;
 
 const toHex = buf =>
   Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
@@ -14,10 +9,10 @@ const fromHex = s =>
   new Uint8Array(s.match(/.{2}/g).map(b => parseInt(b, 16)));
 
 async function pbkdf2Key(passwordStr, saltHex) {
-  const km = await crypto.subtle.importKey(
+  const km = await wc.subtle.importKey(
     'raw', new TextEncoder().encode(passwordStr), 'PBKDF2', false, ['deriveKey']
   );
-  return crypto.subtle.deriveKey(
+  return wc.subtle.deriveKey(
     { name: 'PBKDF2', salt: fromHex(saltHex), iterations: 600000, hash: 'SHA-256' },
     km,
     { name: 'AES-GCM', length: 256 },
@@ -27,26 +22,26 @@ async function pbkdf2Key(passwordStr, saltHex) {
 }
 
 async function gcmEncrypt(data, aesKey) {
-  const raw = await crypto.subtle.exportKey('raw', aesKey);
-  const k = await crypto.subtle.importKey('raw', raw, { name: 'AES-GCM' }, false, ['encrypt']);
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, k, data);
+  const raw = await wc.subtle.exportKey('raw', aesKey);
+  const k = await wc.subtle.importKey('raw', raw, { name: 'AES-GCM' }, false, ['encrypt']);
+  const iv = wc.getRandomValues(new Uint8Array(12));
+  const ct = await wc.subtle.encrypt({ name: 'AES-GCM', iv }, k, data);
   return toHex(iv) + toHex(ct);
 }
 
 async function gcmDecrypt(encHex, aesKey) {
-  const raw = await crypto.subtle.exportKey('raw', aesKey);
-  const k = await crypto.subtle.importKey('raw', raw, { name: 'AES-GCM' }, false, ['decrypt']);
+  const raw = await wc.subtle.exportKey('raw', aesKey);
+  const k = await wc.subtle.importKey('raw', raw, { name: 'AES-GCM' }, false, ['decrypt']);
   const iv = fromHex(encHex.slice(0, 24));
   const ct = fromHex(encHex.slice(24));
-  return new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, k, ct));
+  return new Uint8Array(await wc.subtle.decrypt({ name: 'AES-GCM', iv }, k, ct));
 }
 
 // ── Key management ────────────────────────────────────────────────────────────
 
 /** Wrap vault key with a user password. Returns { kdfSalt, wrappedVaultKey } for storage. */
 export async function wrapVaultKey(vaultKey, password) {
-  const kdfSalt = toHex(crypto.getRandomValues(new Uint8Array(32)));
+  const kdfSalt = toHex(wc.getRandomValues(new Uint8Array(32)));
   const aesKey = await pbkdf2Key(password, kdfSalt);
   const wrappedVaultKey = await gcmEncrypt(vaultKey, aesKey);
   return { kdfSalt, wrappedVaultKey };
@@ -71,34 +66,34 @@ export async function unwrapInviteVaultKey(inviteKdfSalt, inviteWrappedVaultKey,
 
 /** Encrypt a UTF-8 string with the vault key. Returns hex string. */
 export async function encryptText(plaintext, vaultKeyBytes) {
-  const k = await crypto.subtle.importKey('raw', vaultKeyBytes, { name: 'AES-GCM' }, false, ['encrypt']);
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, k, new TextEncoder().encode(plaintext));
+  const k = await wc.subtle.importKey('raw', vaultKeyBytes, { name: 'AES-GCM' }, false, ['encrypt']);
+  const iv = wc.getRandomValues(new Uint8Array(12));
+  const ct = await wc.subtle.encrypt({ name: 'AES-GCM', iv }, k, new TextEncoder().encode(plaintext));
   return toHex(iv) + toHex(ct);
 }
 
 /** Decrypt a hex string produced by encryptText. Returns UTF-8 string. */
 export async function decryptText(encHex, vaultKeyBytes) {
-  const k = await crypto.subtle.importKey('raw', vaultKeyBytes, { name: 'AES-GCM' }, false, ['decrypt']);
+  const k = await wc.subtle.importKey('raw', vaultKeyBytes, { name: 'AES-GCM' }, false, ['decrypt']);
   const iv = fromHex(encHex.slice(0, 24));
   const ct = fromHex(encHex.slice(24));
-  const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, k, ct);
+  const plain = await wc.subtle.decrypt({ name: 'AES-GCM', iv }, k, ct);
   return new TextDecoder().decode(plain);
 }
 
 /** Encrypt binary data with the vault key. Returns hex string. */
 export async function encryptBinary(data, vaultKeyBytes) {
   const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
-  const k = await crypto.subtle.importKey('raw', vaultKeyBytes, { name: 'AES-GCM' }, false, ['encrypt']);
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, k, bytes);
+  const k = await wc.subtle.importKey('raw', vaultKeyBytes, { name: 'AES-GCM' }, false, ['encrypt']);
+  const iv = wc.getRandomValues(new Uint8Array(12));
+  const ct = await wc.subtle.encrypt({ name: 'AES-GCM', iv }, k, bytes);
   return toHex(iv) + toHex(ct);
 }
 
 /** Decrypt a hex string produced by encryptBinary. Returns Uint8Array. */
 export async function decryptBinary(encHex, vaultKeyBytes) {
-  const k = await crypto.subtle.importKey('raw', vaultKeyBytes, { name: 'AES-GCM' }, false, ['decrypt']);
+  const k = await wc.subtle.importKey('raw', vaultKeyBytes, { name: 'AES-GCM' }, false, ['decrypt']);
   const iv = fromHex(encHex.slice(0, 24));
   const ct = fromHex(encHex.slice(24));
-  return new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, k, ct));
+  return new Uint8Array(await wc.subtle.decrypt({ name: 'AES-GCM', iv }, k, ct));
 }
