@@ -3,7 +3,7 @@ FROM node:20-alpine AS builder
 RUN apk add --no-cache python3 make g++
 WORKDIR /build
 COPY vault/package*.json ./
-RUN npm ci --omit=dev
+RUN npm install --omit=dev
 
 # Stage 2 — lean runtime image
 FROM node:20-alpine
