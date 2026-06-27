@@ -1,15 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet, SafeAreaView,
-  Image, Alert, ActivityIndicator, KeyboardAvoidingView, Platform,
+  Alert, ActivityIndicator, KeyboardAvoidingView, Platform,
   ScrollView, useColorScheme,
 } from 'react-native';
-import * as ImagePicker from 'expo-image-picker';
-import * as FileSystem from 'expo-file-system';
 import { setVault } from '../utils/api';
 import { saveAuth } from '../utils/storage';
 import { useVault } from '../context/VaultContext';
-import { unwrapVaultKey } from '../utils/crypto';
 
 function useTheme() {
   const scheme = useColorScheme();
@@ -59,18 +56,12 @@ export default function AuthScreen({ route, navigation }) {
   const { initFirstVault, addVault: addVaultCtx, deriveAndStoreVaultKey } = useVault();
   const t = useTheme();
 
-  const [mode, setMode] = useState(prefilledInvite ? 'join' : 'signin');
   const [members, setMembers] = useState([]);
   const [loadingMembers, setLoadingMembers] = useState(true);
   const [vaultError, setVaultError] = useState(null);
 
   const [selectedMember, setSelectedMember] = useState(null);
   const [signinPassword, setSigninPassword] = useState('');
-
-  const [inviteCode, setInviteCode] = useState(prefilledInvite || '');
-  const [fullName, setFullName] = useState('');
-  const [joinPassword, setJoinPassword] = useState('');
-  const [profilePicUri, setProfilePicUri] = useState(null);
 
   const [submitting, setSubmitting] = useState(false);
 
@@ -156,47 +147,6 @@ export default function AuthScreen({ route, navigation }) {
     }
   };
 
-  const handleJoin = async () => {
-    if (!inviteCode.trim()) return Alert.alert('Invite code required', 'Enter the invite code from your admin.');
-    if (!fullName.trim()) return Alert.alert('Name required', 'Enter your full name.');
-    if (!joinPassword || joinPassword.length < 8) return Alert.alert('Password too short', 'Password must be at least 8 characters.');
-    setSubmitting(true);
-    try {
-      const data = await apiFetch(`${base}/join`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: fullName.trim(), password: joinPassword, inviteCode: inviteCode.trim().toUpperCase() }),
-      });
-
-      let savedPicUri = null;
-      if (profilePicUri) {
-        try {
-          const dest = `${FileSystem.documentDirectory}profile.jpg`;
-          await FileSystem.copyAsync({ from: profilePicUri, to: dest });
-          savedPicUri = dest;
-        } catch {
-          savedPicUri = profilePicUri;
-        }
-      }
-
-      await onSuccess(data.token, data.name, savedPicUri);
-    } catch (e) {
-      Alert.alert('Join failed', e.message);
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const pickPhoto = async (useCamera) => {
-    const picker = useCamera ? ImagePicker.launchCameraAsync : ImagePicker.launchImageLibraryAsync;
-    const permFn = useCamera ? ImagePicker.requestCameraPermissionsAsync : ImagePicker.requestMediaLibraryPermissionsAsync;
-    const { status } = await permFn();
-    if (status !== 'granted') return Alert.alert('Permission needed');
-    const result = await picker({ quality: 0.7, allowsEditing: true, aspect: [1, 1], mediaTypes: ['images'] });
-    if (!result.canceled) setProfilePicUri(result.assets[0].uri);
-  };
-
-  const initials = fullName.trim().split(' ').map((w) => w[0]).join('').toUpperCase().slice(0, 2);
   const s = makeStyles(t);
 
   if (loadingMembers) {
@@ -234,21 +184,11 @@ export default function AuthScreen({ route, navigation }) {
             <Text style={s.vaultUrl}>{vaultUrl}</Text>
           </View>
 
-          <View style={s.tabs}>
-            <TouchableOpacity style={[s.tab, mode === 'signin' && s.tabActive]} onPress={() => setMode('signin')}>
-              <Text style={[s.tabText, mode === 'signin' && s.tabTextActive]}>Sign In</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[s.tab, mode === 'join' && s.tabActive]} onPress={() => setMode('join')}>
-              <Text style={[s.tabText, mode === 'join' && s.tabTextActive]}>New Member</Text>
-            </TouchableOpacity>
-          </View>
-
-          {mode === 'signin' ? (
-            <View style={s.section}>
+          <View style={s.section}>
               {members.length === 0 ? (
                 <View style={s.emptyMembers}>
-                  <Text style={s.emptyText}>No members yet.</Text>
-                  <Text style={s.emptySub}>Switch to New Member to create an account.</Text>
+                  <Text style={s.emptyText}>No members found.</Text>
+                  <Text style={s.emptySub}>Ask your admin for an invite link to join.</Text>
                 </View>
               ) : (
                 <>
@@ -292,58 +232,6 @@ export default function AuthScreen({ route, navigation }) {
                   : <Text style={s.primaryButtonText}>Sign In</Text>}
               </TouchableOpacity>
             </View>
-          ) : (
-            <View style={s.section}>
-              <View style={s.avatarRow}>
-                {profilePicUri ? (
-                  <Image source={{ uri: profilePicUri }} style={s.avatar} />
-                ) : (
-                  <View style={s.avatarPlaceholder}>
-                    <Text style={s.avatarInitials}>{initials || '?'}</Text>
-                  </View>
-                )}
-                <View style={s.avatarButtons}>
-                  <TouchableOpacity style={s.smallButton} onPress={() => pickPhoto(true)}>
-                    <Text style={s.smallButtonText}>Camera</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={s.smallButton} onPress={() => pickPhoto(false)}>
-                    <Text style={s.smallButtonText}>Gallery</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-
-              <Text style={s.label}>Full name</Text>
-              <TextInput
-                style={s.input}
-                placeholder="Your name"
-                placeholderTextColor={t.textMuted}
-                value={fullName}
-                onChangeText={setFullName}
-                autoCorrect={false}
-              />
-
-              <Text style={s.label}>Password</Text>
-              <TextInput
-                style={s.input}
-                placeholder="Choose a password"
-                placeholderTextColor={t.textMuted}
-                secureTextEntry
-                value={joinPassword}
-                onChangeText={setJoinPassword}
-                autoCapitalize="none"
-              />
-
-              <TouchableOpacity
-                style={[s.primaryButton, submitting && s.buttonDisabled]}
-                onPress={handleJoin}
-                disabled={submitting}
-              >
-                {submitting
-                  ? <ActivityIndicator color={t.primaryBtnText} />
-                  : <Text style={s.primaryButtonText}>Join Family Vault</Text>}
-              </TouchableOpacity>
-            </View>
-          )}
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
