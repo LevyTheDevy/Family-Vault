@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, SafeAreaView,
   TextInput, KeyboardAvoidingView, Platform, ScrollView, useColorScheme,
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { Feather } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
 
 function useTheme() {
   const scheme = useColorScheme();
@@ -68,6 +69,8 @@ export default function ScanScreen({ navigation, route }) {
   const [manualError, setManualError] = useState('');
   const t = useTheme();
   const s = makeStyles(t);
+
+  useFocusEffect(useCallback(() => { setScanned(false); }, []));
 
   const proceed = (raw) => {
     const parsed = parseCode(raw);
