@@ -1,0 +1,11 @@
+app/
+vault/node_modules/
+vault/data/
+vault/data2/
+vault/storage/
+vault/storage2/
+vault/backups/
+.git/
+.claude/
+*.md
+.env

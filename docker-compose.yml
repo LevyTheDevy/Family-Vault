@@ -1,0 +1,13 @@
+services:
+  vault:
+    build: .
+    ports:
+      - "3000:3000"
+    volumes:
+      - vault-data:/data
+      - vault-storage:/storage
+    restart: unless-stopped
+
+volumes:
+  vault-data:
+  vault-storage:

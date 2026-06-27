@@ -6,10 +6,7 @@ const fs = require('fs');
 const db = require('../db/sqlite');
 
 const router = express.Router();
-const JWT_SECRET = process.env.JWT_SECRET;
-if (!JWT_SECRET) throw new Error('JWT_SECRET env var is not set — refusing to start. Generate one with: node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"');
-
-const { STORAGE_DIR, VAULT_ACCESS_KEY } = require('../config');
+const { STORAGE_DIR, VAULT_ACCESS_KEY, JWT_SECRET } = require('../config');
 const AVATAR_DIR = path.join(STORAGE_DIR, 'avatars');
 
 function safeName(name) { return name.replace(/[^a-zA-Z0-9]/g, '_'); }
