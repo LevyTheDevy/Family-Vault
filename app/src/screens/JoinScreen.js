@@ -46,6 +46,7 @@ export default function JoinScreen({ route, navigation }) {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [statusMsg, setStatusMsg] = useState('');
 
   useEffect(() => {
     fetchInvite();
@@ -75,18 +76,22 @@ export default function JoinScreen({ route, navigation }) {
 
     setSubmitting(true);
     setError('');
+    await new Promise(r => setTimeout(r, 80)); // yield so spinner renders before blocking PBKDF2
 
     try {
       let kdfSalt = null;
       let wrappedVaultKey = null;
 
       if (inviteCrypto?.inviteKdfSalt && inviteCrypto?.inviteWrappedVaultKey) {
-        // Unwrap vault key from invite, then re-wrap with user's own password
+        setStatusMsg('Deriving keys…');
+        await new Promise(r => setTimeout(r, 30));
         const vaultKey = await unwrapInviteVaultKey(
           inviteCrypto.inviteKdfSalt,
           inviteCrypto.inviteWrappedVaultKey,
           inviteToken
         );
+        setStatusMsg('Securing your account…');
+        await new Promise(r => setTimeout(r, 30));
         const wrapped = await wrapVaultKey(vaultKey, password);
         kdfSalt = wrapped.kdfSalt;
         wrappedVaultKey = wrapped.wrappedVaultKey;
@@ -195,9 +200,14 @@ export default function JoinScreen({ route, navigation }) {
             onPress={handleJoin}
             disabled={submitting}
           >
-            {submitting
-              ? <ActivityIndicator color={t.primaryBtnText} />
-              : <Text style={s.btnText}>Join vault</Text>}
+            {submitting ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                <ActivityIndicator color={t.primaryBtnText} />
+                {!!statusMsg && <Text style={[s.btnText, { fontSize: 13 }]}>{statusMsg}</Text>}
+              </View>
+            ) : (
+              <Text style={s.btnText}>Join vault</Text>
+            )}
           </TouchableOpacity>
         </ScrollView>
       </KeyboardAvoidingView>
