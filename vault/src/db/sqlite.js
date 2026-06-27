@@ -991,7 +991,7 @@ const db = {
     return sql.prepare('SELECT * FROM invite_links WHERE id = ?').get(result.lastInsertRowid);
   },
 
-  // Look up a crypto invite by the SHA-256 hash of the raw token
+  // Look up a crypto invite by the SHA-256 hash of the raw token (read-only, for JoinScreen preview)
   getInviteByTokenHash(tokenHash) {
     const row = sql.prepare(
       'SELECT * FROM invite_links WHERE code = ? AND used = 0 AND revoked = 0'
@@ -1004,6 +1004,25 @@ const db = {
       inviteWrappedVaultKey: row.invite_wrapped_vault_key,
       expiresAt: row.expires_at,
     };
+  },
+
+  // Atomically mark invite as used and return its data; returns null if already used/expired/revoked
+  consumeInviteToken(tokenHash, usedByName) {
+    return sql.transaction(() => {
+      const row = sql.prepare(
+        'SELECT * FROM invite_links WHERE code = ? AND used = 0 AND revoked = 0'
+      ).get(tokenHash);
+      if (!row) return null;
+      if (row.expires_at && new Date(row.expires_at) < new Date()) return null;
+      const { changes } = sql.prepare(
+        "UPDATE invite_links SET used = 1, used_by = ?, used_at = datetime('now') WHERE code = ? AND used = 0"
+      ).run(usedByName, tokenHash);
+      if (!changes) return null; // race: another request consumed it first
+      return {
+        inviteKdfSalt: row.invite_kdf_salt,
+        inviteWrappedVaultKey: row.invite_wrapped_vault_key,
+      };
+    })();
   },
 
   // ── Backup/restore helpers ─────────────────────────────────────────────────

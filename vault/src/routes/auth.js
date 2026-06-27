@@ -88,8 +88,6 @@ router.post('/join', rateLimited, (req, res) => {
     if (!/^[0-9a-f]{64}$/i.test(rawToken))
       return res.status(400).json({ error: 'Invalid invite token' });
     tokenHash = crypto.createHash('sha256').update(Buffer.from(rawToken, 'hex')).digest('hex');
-    if (!db.getInviteByTokenHash(tokenHash))
-      return res.status(403).json({ error: 'Invite not found, already used, or expired' });
   } else if (inviteCode) {
     if (!db.checkInviteCode(inviteCode))
       return res.status(403).json({ error: 'Invalid or already-used invite code' });
@@ -98,11 +96,17 @@ router.post('/join', rateLimited, (req, res) => {
   }
 
   try {
+    // For new crypto tokens: atomically consume the invite (marks used=1 and returns crypto data).
+    // This prevents any race condition where two requests both see used=0 before either marks it.
+    if (tokenHash) {
+      const consumed = db.consumeInviteToken(tokenHash, trimName);
+      if (!consumed) return res.status(403).json({ error: 'Invite not found, already used, or expired' });
+    }
+
     const member = db.insertMember(trimName, password);
 
     if (tokenHash) {
       if (kdfSalt && wrappedVaultKey) db.setUserCrypto(member.id, kdfSalt, wrappedVaultKey);
-      db.markInviteLinkUsed(tokenHash, trimName);
     } else {
       db.markInviteLinkUsed(String(inviteCode).trim().toUpperCase(), trimName);
     }
