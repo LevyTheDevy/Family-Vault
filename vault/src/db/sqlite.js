@@ -928,6 +928,13 @@ const db = {
       messageCount:     sql.prepare('SELECT COUNT(*) AS n FROM messages').get().n,
     };
   },
+
+  // ── Backup/restore helpers ─────────────────────────────────────────────────
+  // Creates a consistent WAL-checkpointed snapshot at destPath (returns Promise)
+  backup(destPath) { return sql.backup(destPath); },
+
+  // Closes the DB connection — call before replacing the file for restore
+  close() { sql.close(); },
 };
 
 module.exports = db;

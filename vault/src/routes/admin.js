@@ -91,6 +91,10 @@ async function doCreateBackup() {
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
   const filename = `familyvault-backup-${timestamp}.zip`;
   const outPath = path.join(BACKUP_DIR, filename);
+  const tempDb = path.join(BACKUP_DIR, `tmp-${timestamp}.db`);
+
+  // Use better-sqlite3's native backup API — creates a consistent WAL snapshot
+  await db.backup(tempDb);
 
   const output = fs.createWriteStream(outPath);
   const archive = archiver('zip', { zlib: { level: 5 } });
@@ -101,19 +105,19 @@ async function doCreateBackup() {
     archive.on('error', reject);
     archive.pipe(output);
 
-    const dbFile = path.join(DATA_DIR, 'db.json');
-    if (fs.existsSync(dbFile)) archive.file(dbFile, { name: 'db.json' });
+    archive.file(tempDb, { name: 'vault.db' });
 
     if (fs.existsSync(STORAGE_DIR)) {
-      archive.directory(STORAGE_DIR, 'storage', (data) => {
-        const parts = data.name.split(/[/\\]/);
-        if (parts[0] === '.chunks') return false;
-        return data;
+      archive.directory(STORAGE_DIR, 'storage', (entry) => {
+        const parts = entry.name.split(/[/\\]/);
+        return parts[0] === '.chunks' ? false : entry;
       });
     }
 
     archive.finalize();
   });
+
+  try { fs.unlinkSync(tempDb); } catch {}
 
   const settings = loadBackupSettings();
   settings.lastBackupAt = new Date().toISOString();
@@ -316,6 +320,52 @@ router.delete('/admin/api/backups/:name', requireAdmin, (req, res) => {
     fs.unlinkSync(path.join(BACKUP_DIR, safeName));
     res.json({ ok: true });
   } catch (e) { res.status(404).json({ error: 'Backup not found' }); }
+});
+
+router.post('/admin/api/backup/restore/:name', requireAdmin, (req, res) => {
+  const safeName = path.basename(req.params.name);
+  if (!safeName.endsWith('.zip')) return res.status(400).json({ error: 'Invalid filename' });
+  const zipPath = path.join(BACKUP_DIR, safeName);
+  if (!fs.existsSync(zipPath)) return res.status(404).json({ error: 'Backup not found' });
+
+  try {
+    const AdmZip = require('adm-zip');
+    const zip = new AdmZip(zipPath);
+    const entries = zip.getEntries();
+    const hasDb = entries.some(e => e.entryName === 'vault.db');
+    if (!hasDb) return res.status(400).json({ error: 'Backup does not contain vault.db — this may be from an older version and cannot be restored automatically.' });
+
+    // Respond before restarting
+    res.json({ ok: true });
+
+    setImmediate(() => {
+      try {
+        // Write DB from backup
+        const dbEntry = zip.getEntry('vault.db');
+        const destDb = path.join(DATA_DIR, 'vault.db');
+        db.close();
+        fs.writeFileSync(destDb, dbEntry.getData());
+
+        // Write storage files from backup
+        for (const entry of entries) {
+          if (!entry.entryName.startsWith('storage/') || entry.isDirectory) continue;
+          const rel = entry.entryName.slice('storage/'.length);
+          if (!rel) continue;
+          const dest = path.join(STORAGE_DIR, rel);
+          fs.mkdirSync(path.dirname(dest), { recursive: true });
+          fs.writeFileSync(dest, entry.getData());
+        }
+
+        console.log(`[restore] Restored from ${safeName} — restarting`);
+        process.exit(0); // Docker restart: unless-stopped brings it back
+      } catch (e) {
+        console.error('[restore] Failed:', e.message);
+        process.exit(1);
+      }
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // ─── Admin SPA ────────────────────────────────────────────────────────────────
@@ -819,14 +869,15 @@ function renderBackups(backups) {
             <td style="font-family:monospace;font-size:11px">\${esc(b.name)}</td>
             <td>\${fmtBytes(b.size)}</td>
             <td style="white-space:nowrap">\${new Date(b.createdAt).toLocaleString()}</td>
-            <td style="text-align:right">
+            <td style="text-align:right;white-space:nowrap;display:flex;gap:6px;justify-content:flex-end">
+              <button class="btn btn-outline btn-xs" onclick="restoreBackup('\${esc(b.name)}','\${new Date(b.createdAt).toLocaleString()}')">Restore</button>
               <button class="btn btn-danger btn-xs" onclick="deleteBackup('\${esc(b.name)}')">✕</button>
             </td>
           </tr>
         \`).join('')}
       </tbody>
     </table>
-    <div style="font-size:11px;color:#333;margin-top:10px">Backups are stored on the server. Access them via SSH at: \${BACKUP_DIR_HINT}</div>
+    <div style="font-size:11px;color:var(--text-dim);margin-top:10px">Backups survive server restarts and rebuilds. To download a copy, use SSH to access the Docker volume.</div>
   \`;
 }
 
@@ -859,6 +910,25 @@ async function deleteBackup(name) {
     await apiFetch('/admin/api/backups/' + encodeURIComponent(name), { method: 'DELETE' });
     await loadBackups();
   } catch (e) { alert('Error: ' + e.message); }
+}
+
+async function restoreBackup(name, dateStr) {
+  if (!confirm('Restore backup from ' + dateStr + '?\\n\\nThis will replace ALL current data — members, posts, messages, and media — with the contents of this backup.\\n\\nThe server will restart automatically. This cannot be undone.')) return;
+  try {
+    await apiFetch('/admin/api/backup/restore/' + encodeURIComponent(name), { method: 'POST' });
+    document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;min-height:100vh;flex-direction:column;gap:16px;font-family:sans-serif;background:var(--bg,#fff);color:var(--text,#000)">'
+      + '<div style="font-size:22px;font-weight:700">Restoring backup...</div>'
+      + '<div style="font-size:14px;color:#888">The server is restarting. This page will reload automatically.</div>'
+      + '</div>';
+    // Poll until server responds again, then reload
+    const poll = setInterval(async () => {
+      try {
+        await fetch('/admin/api/status');
+        clearInterval(poll);
+        location.reload();
+      } catch {}
+    }, 2000);
+  } catch (e) { alert('Restore failed: ' + e.message); }
 }
 
 // ── Members ───────────────────────────────────────────────────────────────────
