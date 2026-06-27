@@ -167,7 +167,10 @@ export default function AuthScreen({ route, navigation }) {
         <View style={s.center}>
           <Text style={s.errorTitle}>Cannot reach vault</Text>
           <Text style={s.errorSub}>{vaultUrl}</Text>
-          <TouchableOpacity style={s.backButton} onPress={() => navigation.goBack()}>
+          <TouchableOpacity style={s.backButton} onPress={() => {
+            if (navigation.canGoBack()) navigation.goBack();
+            else navigation.navigate('Scan');
+          }}>
             <Text style={s.backButtonText}>Scan again</Text>
           </TouchableOpacity>
         </View>
