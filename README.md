@@ -121,6 +121,7 @@ To customise paths or use your own secrets, set these environment variables befo
 - Invite-link based registration — no email required
 - Admin panel for member management and server-side backups
 - Password reset flow managed through the admin panel
+- End-to-end encryption for all messages, captions, comments, and photos
 
 ---
 
@@ -134,11 +135,29 @@ To customise paths or use your own secrets, set these environment variables befo
 
 ## Security Notes
 
+- **End-to-end encryption:** All messages, captions, comments, and photos are encrypted with AES-256-GCM before leaving the device. The server stores only ciphertext — it never sees plaintext content.
+- **Vault key:** A single vault key is shared across all members, derived via PBKDF2-SHA256 and wrapped individually with each member's password. The server never holds the unwrapped key.
 - The admin panel does not expose user content. Backups are server-side only and accessible via SSH.
 - Invite links are single-use and can be revoked.
 - Passwords are hashed with PBKDF2 (100,000 iterations, SHA-256).
 - Login attempts are rate-limited per IP.
 - Media files are served with JWT authentication.
+
+To report a security vulnerability, see [SECURITY.md](SECURITY.md).
+
+---
+
+## Legal & Content Policy
+
+FamilyVault is a self-hosted tool. **The person who deploys and operates the server is solely responsible** for all content stored and for compliance with applicable laws in their jurisdiction, including but not limited to:
+
+- Data protection and privacy laws (e.g. GDPR, CCPA, COPPA)
+- Laws governing the storage of images and videos of minors
+- Parental consent requirements for children's data
+
+**Prohibited content:** FamilyVault must not be used to store, share, or distribute any illegal content, including child sexual abuse material (CSAM). This is an absolute prohibition with no exceptions. If you encounter or suspect CSAM, report it immediately to the [National Center for Missing & Exploited Children (NCMEC)](https://www.missingkids.org/gethelpnow/cybertipline) or your country's equivalent authority.
+
+The author provides this software as-is with no warranty. See [LICENSE](LICENSE) for full terms.
 
 ---
 
