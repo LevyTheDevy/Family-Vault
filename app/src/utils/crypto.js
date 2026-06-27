@@ -5,7 +5,7 @@
 // Random bytes via tweetnacl (already installed, proven in RN)
 
 import { pbkdf2Async } from '@noble/hashes/pbkdf2';
-import { sha256 } from '@noble/hashes/sha256';
+import { sha256 } from '@noble/hashes/sha2';
 import { gcm } from '@noble/ciphers/aes';
 import nacl from 'tweetnacl';
 
