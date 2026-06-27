@@ -9,15 +9,23 @@ const { STORAGE_DIR, BACKUP_DIR, DATA_DIR, VAULT_NAME, VAULT_ACCESS_KEY, JWT_SEC
 
 const AVATAR_DIR = path.join(STORAGE_DIR, 'avatars');
 const BACKUP_SETTINGS_FILE = path.join(DATA_DIR, 'backup-settings.json');
+const SERVER_URL_FILE = path.join(DATA_DIR, 'server-url.txt');
 
 const router = express.Router();
 const PORT = process.env.PORT || 3000;
+
+const PUBLIC_URL = (process.env.PUBLIC_URL || '').replace(/\/$/, '');
 
 function getLocalIp() {
   for (const iface of Object.values(os.networkInterfaces()))
     for (const addr of iface)
       if (addr.family === 'IPv4' && !addr.internal) return addr.address;
   return 'localhost';
+}
+
+function getServerUrl() {
+  try { const u = fs.readFileSync(SERVER_URL_FILE, 'utf8').trim(); if (u) return u; } catch {}
+  return PUBLIC_URL || `http://${getLocalIp()}:${PORT}`;
 }
 
 // Accepts token from Authorization header OR ?token= query param (for download links)
@@ -141,7 +149,7 @@ setInterval(runScheduledBackup, 60 * 60 * 1000);
 // ─── API ──────────────────────────────────────────────────────────────────────
 
 router.get('/admin/api/status', (req, res) => {
-  res.json({ setupDone: db.isSetupDone(), vaultUrl: `http://${getLocalIp()}:${PORT}`, vaultName: VAULT_NAME });
+  res.json({ setupDone: db.isSetupDone(), vaultName: VAULT_NAME });
 });
 
 // Simple rate limiter
@@ -178,14 +186,11 @@ router.post('/admin/api/login', adminRateLimit, (req, res) => {
   res.json({ token, name: admin.name });
 });
 
-const PUBLIC_URL = (process.env.PUBLIC_URL || '').replace(/\/$/, '');
-
 router.get('/admin/api/vault-qr', requireAdmin, async (req, res) => {
-  const localUrl = `http://${getLocalIp()}:${PORT}`;
-  const externalBase = PUBLIC_URL || localUrl;
-  const externalUrl = `${externalBase}?vk=${VAULT_ACCESS_KEY}`;
+  const serverUrl = getServerUrl();
+  const externalUrl = `${serverUrl}?vk=${VAULT_ACCESS_KEY}`;
   const qr = await QRCode.toDataURL(externalUrl, { width: 300, margin: 2, color: { dark: '#000', light: '#fff' } });
-  res.json({ qr, localUrl, externalUrl });
+  res.json({ qr, serverUrl, externalUrl });
 });
 
 router.get('/admin/api/stats', requireAdmin, (req, res) => {
@@ -247,10 +252,23 @@ router.delete('/admin/api/invites/:code', requireAdmin, (req, res) => {
 
 router.get('/admin/api/invites/:code/qr', requireAdmin, async (req, res) => {
   const { code } = req.params;
-  const base = PUBLIC_URL || `http://${getLocalIp()}:${PORT}`;
-  const vaultCode = `${base}/${code}`;
+  const vaultCode = `${getServerUrl()}/${code}`;
   const qr = await QRCode.toDataURL(vaultCode, { width: 320, margin: 2, color: { dark: '#000', light: '#fff' } });
   res.json({ qr, vaultCode });
+});
+
+router.get('/admin/api/server-url', requireAdmin, (req, res) => {
+  let saved = '';
+  try { saved = fs.readFileSync(SERVER_URL_FILE, 'utf8').trim(); } catch {}
+  res.json({ url: saved, detected: `http://${getLocalIp()}:${PORT}` });
+});
+
+router.post('/admin/api/server-url', requireAdmin, (req, res) => {
+  let { url } = req.body;
+  if (!url || !/^https?:\/\//i.test(url)) return res.status(400).json({ error: 'Must start with http:// or https://' });
+  url = url.replace(/\/$/, '');
+  fs.writeFileSync(SERVER_URL_FILE, url);
+  res.json({ ok: true, url });
 });
 
 // ─── Backup API ────────────────────────────────────────────────────────────────
@@ -464,11 +482,13 @@ body{background:#000;color:#fff;font-family:-apple-system,BlinkMacSystemFont,'Se
       <div class="vault-card">
         <div class="vault-qr"><img id="vault-qr-img" src="" alt="QR"></div>
         <div class="vault-info">
-          <div class="vault-url-label">External address</div>
-          <div class="vault-url" id="vault-url-ext"></div>
-          <div class="vault-url-label" style="margin-top:10px">Local address</div>
-          <div style="font-size:13px;font-family:monospace;color:#555" id="vault-url-local"></div>
-          <div class="vault-hint" style="margin-top:10px">Returning members scan this QR code with the FamilyVault app to sign in anywhere. New members need a personal invite code below.</div>
+          <div class="vault-url-label">Server URL</div>
+          <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
+            <input id="server-url-input" style="flex:1;background:#111;border:1px solid #222;border-radius:8px;color:#fff;font-size:13px;padding:9px 12px;font-family:monospace;outline:none;min-width:0" placeholder="http://192.168.1.165:3000">
+            <button class="btn btn-sm" id="server-url-btn" onclick="saveServerUrl(this)">Save</button>
+          </div>
+          <div style="font-size:11px;color:#444;margin-top:6px">Used in all QR codes and invite links. Set to your Pi's LAN IP, or your Cloudflare domain for remote access.</div>
+          <div class="vault-hint" style="margin-top:14px">Returning members scan this QR code with the FamilyVault app to sign in. New members need a personal invite code below.</div>
         </div>
       </div>
     </div>
@@ -650,18 +670,34 @@ async function loadDashboard(status) {
     document.getElementById('vault-name-chip').style.display = 'none';
   }
 
-  const [vaultData, members, invites] = await Promise.all([
+  const [vaultData, members, invites, urlData] = await Promise.all([
     apiFetch('/admin/api/vault-qr'),
     apiFetch('/admin/api/members'),
     apiFetch('/admin/api/invites'),
+    apiFetch('/admin/api/server-url'),
   ]);
-  document.getElementById('vault-url-ext').textContent = vaultData.externalUrl;
-  document.getElementById('vault-url-local').textContent = vaultData.localUrl;
   document.getElementById('vault-qr-img').src = vaultData.qr;
+  document.getElementById('server-url-input').value = urlData.url || urlData.detected || '';
   renderMembers(members);
   renderInvites(invites);
   loadStats();
   loadBackups();
+}
+
+// ── Server URL ────────────────────────────────────────────────────────────────
+
+async function saveServerUrl(btn) {
+  const url = document.getElementById('server-url-input').value.trim();
+  if (!url) { alert('Enter a URL first'); return; }
+  const orig = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Saving…';
+  try {
+    await apiFetch('/admin/api/server-url', { method: 'POST', body: JSON.stringify({ url }) });
+    const vaultData = await apiFetch('/admin/api/vault-qr');
+    document.getElementById('vault-qr-img').src = vaultData.qr;
+    btn.textContent = '✓ Saved';
+    setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 1800);
+  } catch (e) { alert('Error: ' + e.message); btn.textContent = orig; btn.disabled = false; }
 }
 
 // ── Stats ────────────────────────────────────────────────────────────────────
