@@ -746,7 +746,9 @@ async function saveVaultName(btn) {
   btn.disabled = true; btn.textContent = 'Saving…';
   try {
     await apiFetch('/admin/api/vault-name', { method: 'POST', body: JSON.stringify({ vaultName: name }) });
-    document.getElementById('vault-name-chip').textContent = name;
+    const chip = document.getElementById('vault-name-chip');
+    chip.textContent = name;
+    chip.style.display = '';
     btn.textContent = '✓ Saved';
     setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 1800);
   } catch (e) { alert('Error: ' + e.message); btn.textContent = orig; btn.disabled = false; }

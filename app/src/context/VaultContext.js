@@ -56,6 +56,16 @@ export function VaultProvider({ children }) {
     initVaults().then(() => setReady(true));
   }, []);
 
+  async function fetchVaultName(vaultUrl) {
+    try {
+      const controller = new AbortController();
+      const tid = setTimeout(() => controller.abort(), 5000);
+      const r = await fetch(`${vaultUrl}/health`, { signal: controller.signal });
+      clearTimeout(tid);
+      return (await r.json()).vaultName || null;
+    } catch { return null; }
+  }
+
   async function initVaults() {
     let list = await readList();
     let activeIdx = 0;
@@ -64,16 +74,8 @@ export function VaultProvider({ children }) {
       // One-time migration from old single-vault SecureStore format
       const auth = await loadAuth();
       if (auth) {
-        let vaultName = 'Family Vault';
-        try {
-          const controller = new AbortController();
-          const tid = setTimeout(() => controller.abort(), 5000);
-          const r = await fetch(`${auth.vaultUrl}/health`, { signal: controller.signal });
-          clearTimeout(tid);
-          vaultName = (await r.json()).vaultName || 'Family Vault';
-        } catch {}
-
-        list = [{ vaultUrl: auth.vaultUrl, name: auth.name, vaultName }];
+        const freshName = await fetchVaultName(auth.vaultUrl);
+        list = [{ vaultUrl: auth.vaultUrl, name: auth.name, vaultName: freshName || 'Family Vault' }];
         await storeList(list);
         await writeToken(0, auth.token);
         await writeActiveIdx(0);
@@ -89,6 +91,18 @@ export function VaultProvider({ children }) {
       if (token && v) setVault(v.vaultUrl, token, v.name);
       setVaults(list);
       setActiveIndex(activeIdx);
+
+      // Background: refresh vault names from server, update if changed
+      Promise.all(list.map(async (v) => {
+        const fresh = await fetchVaultName(v.vaultUrl);
+        return fresh && fresh !== v.vaultName ? { ...v, vaultName: fresh } : v;
+      })).then(async (updated) => {
+        const changed = updated.some((v, i) => v.vaultName !== list[i].vaultName);
+        if (changed) {
+          await storeList(updated);
+          setVaults(updated);
+        }
+      }).catch(() => {});
     }
   }
 
@@ -101,6 +115,14 @@ export function VaultProvider({ children }) {
     setActiveIndex(index);
     await writeActiveIdx(index);
     purgeMediaCache();
+    // Refresh name in background
+    fetchVaultName(vault.vaultUrl).then(async (fresh) => {
+      if (fresh && fresh !== vault.vaultName) {
+        const updated = vaults.map((v, i) => i === index ? { ...v, vaultName: fresh } : v);
+        await storeList(updated);
+        setVaults(updated);
+      }
+    }).catch(() => {});
   }
 
   // Called on first login — replaces any existing vault list with a single entry
