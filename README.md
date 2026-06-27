@@ -45,7 +45,7 @@ Open your browser and go to:
 http://localhost:3001/admin
 ```
 
-The admin panel runs on port 3001, which is bound to localhost only. It is never reachable through Cloudflare or from any other device on your network — only from a browser on the machine running the server.
+The admin panel runs on port 3001. It is accessible from any device on your local network but is never reachable through Cloudflare or the internet — Cloudflare only tunnels port 3000.
 
 Create your admin account here. This gives you access to the admin panel where you can create invite links for family members.
 

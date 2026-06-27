@@ -3,7 +3,7 @@ services:
     build: .
     ports:
       - "3000:3000"              # App API — accessible on LAN and via Cloudflare tunnel
-      - "127.0.0.1:3001:3001"   # Admin panel — localhost only, never reachable remotely
+      - "3001:3001"              # Admin panel — LAN only (Cloudflare only tunnels 3000)
     volumes:
       - vault-data:/data
       - vault-storage:/storage

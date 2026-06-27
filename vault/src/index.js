@@ -80,7 +80,8 @@ http.createServer(app).listen(PORT, '0.0.0.0', () => {
   console.log(`  API:      http://${getLocalIp()}:${PORT}`);
 });
 
-http.createServer(adminApp).listen(ADMIN_PORT, '127.0.0.1', () => {
-  console.log(`  Admin:    http://localhost:${ADMIN_PORT}/admin`);
-  console.log(`  (admin is localhost-only — not reachable via Cloudflare tunnel)\n`);
+http.createServer(adminApp).listen(ADMIN_PORT, '0.0.0.0', () => {
+  const localIp = getLocalIp();
+  console.log(`  Admin:    http://${localIp}:${ADMIN_PORT}/admin`);
+  console.log(`  (admin is LAN-only — not reachable via Cloudflare tunnel)\n`);
 });
