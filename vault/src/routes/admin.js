@@ -260,7 +260,7 @@ router.get('/admin/api/invites/:code/qr', requireAdmin, async (req, res) => {
 router.get('/admin/api/server-url', requireAdmin, (req, res) => {
   let saved = '';
   try { saved = fs.readFileSync(SERVER_URL_FILE, 'utf8').trim(); } catch {}
-  res.json({ url: saved, detected: `http://${getLocalIp()}:${PORT}` });
+  res.json({ url: saved, detected: getServerUrl() });
 });
 
 router.post('/admin/api/server-url', requireAdmin, (req, res) => {
