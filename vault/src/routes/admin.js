@@ -323,88 +323,114 @@ function adminPage() {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>FamilyVault Admin</title>
 <style>
+:root{
+  --bg:#fff;--card:#f7f7f7;--border:#e8e8e8;--border-sub:#f0f0f0;
+  --text:#0d0d0d;--text-muted:#888;--text-dim:#bbb;
+  --input-bg:#f2f2f2;--input-border:#e0e0e0;--input-focus:#0d0d0d;
+  --btn-bg:#0d0d0d;--btn-color:#fff;
+  --btn-outline-color:#0d0d0d;--btn-outline-border:#ccc;
+  --section-lbl:#aaa;--stat-lbl:#aaa;--td-color:#666;
+  --empty-color:#ccc;--avatar-bg:#e8e8e8;
+  --overlay:rgba(0,0,0,.4);--modal-bg:#fff;--modal-border:#e0e0e0;
+  --topbar-border:#eee;--chip-color:#999;--chip-border:#e0e0e0;
+  --row-hover:#f9f9f9;
+}
+@media(prefers-color-scheme:dark){
+  :root{
+    --bg:#000;--card:#0d0d0d;--border:#1e1e1e;--border-sub:#111;
+    --text:#fff;--text-muted:#555;--text-dim:#444;
+    --input-bg:#111;--input-border:#222;--input-focus:#fff;
+    --btn-bg:#fff;--btn-color:#000;
+    --btn-outline-color:#fff;--btn-outline-border:#333;
+    --section-lbl:#444;--stat-lbl:#555;--td-color:#aaa;
+    --empty-color:#333;--avatar-bg:#1e1e1e;
+    --overlay:rgba(0,0,0,.8);--modal-bg:#0d0d0d;--modal-border:#222;
+    --topbar-border:#111;--chip-color:#444;--chip-border:#1e1e1e;
+    --row-hover:#0a0a0a;
+  }
+}
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:#000;color:#fff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh}
 .hidden{display:none!important}
 /* ── Auth views ── */
 .auth-wrap{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:24px;gap:32px}
 .brand{font-size:28px;font-weight:700;letter-spacing:-0.5px}
-.auth-card{background:#0d0d0d;border:1px solid #1e1e1e;border-radius:16px;padding:32px;width:100%;max-width:400px;display:flex;flex-direction:column;gap:20px}
+.auth-card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:32px;width:100%;max-width:400px;display:flex;flex-direction:column;gap:20px}
 .auth-title{font-size:18px;font-weight:600}
-.auth-sub{color:#555;font-size:13px;margin-top:-12px;line-height:1.5}
+.auth-sub{color:var(--text-muted);font-size:13px;margin-top:-12px;line-height:1.5}
 .field{display:flex;flex-direction:column;gap:6px}
-.field label{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:#555}
-.field input{background:#111;border:1px solid #222;border-radius:8px;color:#fff;font-size:15px;padding:13px 14px;outline:none;transition:border-color .15s}
-.field input:focus{border-color:#fff}
-.btn{background:#fff;color:#000;border:none;border-radius:10px;font-size:15px;font-weight:700;padding:14px;cursor:pointer;transition:opacity .15s}
-.btn:hover{opacity:.88}
+.field label{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted)}
+.field input{background:var(--input-bg);border:1px solid var(--input-border);border-radius:8px;color:var(--text);font-size:15px;padding:13px 14px;outline:none;transition:border-color .15s}
+.field input:focus{border-color:var(--input-focus)}
+.btn{background:var(--btn-bg);color:var(--btn-color);border:none;border-radius:10px;font-size:15px;font-weight:700;padding:14px;cursor:pointer;transition:opacity .15s}
+.btn:hover{opacity:.82}
 .btn:disabled{opacity:.3;cursor:default}
-.btn-outline{background:transparent;color:#fff;border:1px solid #333}
+.btn-outline{background:transparent;color:var(--btn-outline-color);border:1px solid var(--btn-outline-border)}
 .btn-danger{background:#e53935;color:#fff}
 .btn-sm{font-size:13px;padding:8px 14px;border-radius:8px}
 .btn-xs{font-size:11px;padding:5px 10px;border-radius:6px}
 .err{color:#e53935;font-size:13px;text-align:center}
 /* ── Dashboard layout ── */
 .dash{display:flex;flex-direction:column;min-height:100vh}
-.topbar{display:flex;align-items:center;justify-content:space-between;padding:16px 28px;border-bottom:1px solid #111;gap:16px}
+.topbar{display:flex;align-items:center;justify-content:space-between;padding:16px 28px;border-bottom:1px solid var(--topbar-border);gap:16px}
 .topbar-left{display:flex;align-items:center;gap:10px}
 .topbar-brand{font-size:17px;font-weight:700}
-.topbar-vault{font-size:13px;color:#444;font-weight:400;padding:3px 10px;border:1px solid #1e1e1e;border-radius:20px}
-.topbar-right{display:flex;align-items:center;gap:14px;color:#555;font-size:13px}
+.topbar-vault{font-size:13px;color:var(--chip-color);font-weight:400;padding:3px 10px;border:1px solid var(--chip-border);border-radius:20px}
+.topbar-right{display:flex;align-items:center;gap:14px;color:var(--text-muted);font-size:13px}
 .content{max-width:920px;margin:0 auto;padding:32px 24px;display:flex;flex-direction:column;gap:36px;width:100%}
 /* ── Section ── */
 .section-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;gap:12px;flex-wrap:wrap}
-.section-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;color:#444}
+.section-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;color:var(--section-lbl)}
 /* ── Stats ── */
 .stats-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px}
-.stat-card{background:#0d0d0d;border:1px solid #1e1e1e;border-radius:12px;padding:18px 16px}
+.stat-card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:18px 16px}
 .stat-val{font-size:26px;font-weight:700;line-height:1;margin-bottom:6px}
-.stat-lbl{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:#555}
+.stat-lbl{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:var(--stat-lbl)}
 /* ── Vault info ── */
-.vault-card{background:#0d0d0d;border:1px solid #1e1e1e;border-radius:14px;padding:24px;display:flex;gap:28px;align-items:flex-start;flex-wrap:wrap}
+.vault-card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:24px;display:flex;gap:28px;align-items:flex-start;flex-wrap:wrap}
 .vault-qr{background:#fff;border-radius:10px;padding:12px;flex-shrink:0}
 .vault-qr img{display:block;width:140px;height:140px}
 .vault-info{display:flex;flex-direction:column;gap:10px;flex:1}
-.vault-url-label{font-size:11px;color:#555;font-weight:600;text-transform:uppercase;letter-spacing:1px}
+.vault-url-label{font-size:11px;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:1px}
 .vault-url{font-size:18px;font-weight:700;font-family:monospace;word-break:break-all}
-.vault-hint{font-size:12px;color:#444;line-height:1.6}
+.vault-hint{font-size:12px;color:var(--text-dim);line-height:1.6}
 /* ── Backup ── */
-.backup-card{background:#0d0d0d;border:1px solid #1e1e1e;border-radius:14px;padding:20px;display:flex;flex-direction:column;gap:16px}
+.backup-card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:20px;display:flex;flex-direction:column;gap:16px}
 .backup-sched{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-.sched-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#555}
-.sched-select{background:#111;border:1px solid #222;border-radius:7px;color:#fff;font-size:13px;padding:7px 10px;outline:none;cursor:pointer}
-.sched-select:focus{border-color:#444}
-.backup-status{font-size:12px;color:#555}
+.sched-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted)}
+.sched-select{background:var(--input-bg);border:1px solid var(--input-border);border-radius:7px;color:var(--text);font-size:13px;padding:7px 10px;outline:none;cursor:pointer}
+.sched-select:focus{border-color:var(--input-focus)}
+.backup-status{font-size:12px;color:var(--text-muted)}
 .backup-table{width:100%;border-collapse:collapse}
-.backup-table th{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#444;text-align:left;padding:6px 10px;border-bottom:1px solid #1a1a1a}
-.backup-table td{font-size:12px;padding:9px 10px;border-bottom:1px solid #111;color:#aaa;vertical-align:middle}
+.backup-table th{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--section-lbl);text-align:left;padding:6px 10px;border-bottom:1px solid var(--border)}
+.backup-table td{font-size:12px;padding:9px 10px;border-bottom:1px solid var(--border-sub);color:var(--td-color);vertical-align:middle}
 .backup-table tr:last-child td{border-bottom:none}
-.backup-table tr:hover td{background:#0a0a0a}
+.backup-table tr:hover td{background:var(--row-hover)}
 /* ── Members ── */
 .members-grid{display:flex;flex-direction:column;gap:10px}
-.member-chip{display:flex;align-items:center;gap:12px;background:#0d0d0d;border:1px solid #1e1e1e;border-radius:10px;padding:12px 16px}
-.member-avatar{width:38px;height:38px;border-radius:19px;background:#1e1e1e;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:600;flex-shrink:0}
+.member-chip{display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:12px 16px}
+.member-avatar{width:38px;height:38px;border-radius:19px;background:var(--avatar-bg);display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:600;flex-shrink:0}
 .member-info{flex:1}
 .member-name{font-size:14px;font-weight:500}
-.member-date{font-size:11px;color:#444;margin-top:2px}
-.empty-hint{color:#333;font-size:13px;padding:16px 0}
+.member-date{font-size:11px;color:var(--text-dim);margin-top:2px}
+.empty-hint{color:var(--empty-color);font-size:13px;padding:16px 0}
 /* ── Invite cards ── */
 .invites-list{display:flex;flex-direction:column;gap:10px}
-.invite-card{background:#0d0d0d;border:1px solid #1e1e1e;border-radius:12px;padding:18px 20px}
+.invite-card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:18px 20px}
 .invite-card.used{opacity:.5}
 .invite-card.revoked{opacity:.4}
 .invite-top{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}
 .invite-label{font-size:15px;font-weight:600}
 .badge{font-size:11px;font-weight:600;padding:3px 9px;border-radius:20px;border:1px solid}
 .badge-active{color:#43a047;border-color:#43a047;background:rgba(67,160,71,.1)}
-.badge-used{color:#555;border-color:#333;background:transparent}
+.badge-used{color:var(--text-muted);border-color:var(--border);background:transparent}
 .badge-revoked{color:#e53935;border-color:#e53935;background:rgba(229,57,53,.08)}
-.invite-code{font-family:monospace;font-size:16px;letter-spacing:2px;color:#fff;margin-bottom:10px;word-break:break-all}
-.invite-meta{font-size:11px;color:#444;margin-bottom:12px}
+.invite-code{font-family:monospace;font-size:16px;letter-spacing:2px;color:var(--text);margin-bottom:10px;word-break:break-all}
+.invite-meta{font-size:11px;color:var(--text-dim);margin-bottom:12px}
 .invite-actions{display:flex;gap:8px;flex-wrap:wrap}
 /* ── Modal ── */
-.modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.8);display:flex;align-items:center;justify-content:center;padding:24px;z-index:100}
-.modal{background:#0d0d0d;border:1px solid #222;border-radius:16px;padding:28px;width:100%;max-width:440px;display:flex;flex-direction:column;gap:20px}
+.modal-backdrop{position:fixed;inset:0;background:var(--overlay);display:flex;align-items:center;justify-content:center;padding:24px;z-index:100}
+.modal{background:var(--modal-bg);border:1px solid var(--modal-border);border-radius:16px;padding:28px;width:100%;max-width:440px;display:flex;flex-direction:column;gap:20px}
 .modal-title{font-size:17px;font-weight:600}
 .modal-qr-wrap{background:#fff;border-radius:10px;padding:14px;align-self:center}
 .modal-qr-wrap img{display:block;width:240px;height:240px}
@@ -414,7 +440,7 @@ body{background:#000;color:#fff;font-family:-apple-system,BlinkMacSystemFont,'Se
 .modal-foot .btn{flex:1}
 /* ── Spinner ── */
 .spinner-wrap{display:flex;align-items:center;justify-content:center;min-height:100vh}
-.spinner{width:28px;height:28px;border:3px solid #1e1e1e;border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite}
+.spinner{width:28px;height:28px;border:3px solid var(--border);border-top-color:var(--text);border-radius:50%;animation:spin .7s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 </style>
 </head>
@@ -484,7 +510,7 @@ body{background:#000;color:#fff;font-family:-apple-system,BlinkMacSystemFont,'Se
         <div class="vault-info">
           <div class="vault-url-label">Server URL</div>
           <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
-            <input id="server-url-input" style="flex:1;background:#111;border:1px solid #222;border-radius:8px;color:#fff;font-size:13px;padding:9px 12px;font-family:monospace;outline:none;min-width:0" placeholder="http://192.168.1.165:3000">
+            <input id="server-url-input" style="flex:1;background:var(--input-bg);border:1px solid var(--input-border);border-radius:8px;color:var(--text);font-size:13px;padding:9px 12px;font-family:monospace;outline:none;min-width:0" placeholder="http://192.168.1.165:3000">
             <button class="btn btn-sm" id="server-url-btn" onclick="saveServerUrl(this)">Save</button>
           </div>
           <div style="font-size:11px;color:#444;margin-top:6px">Used in all QR codes and invite links. Set to your Pi's LAN IP, or your Cloudflare domain for remote access.</div>

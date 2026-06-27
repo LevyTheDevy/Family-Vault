@@ -2,13 +2,46 @@ import React, { useState, useEffect } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet, SafeAreaView,
   Image, Alert, ActivityIndicator, KeyboardAvoidingView, Platform,
-  ScrollView, FlatList,
+  ScrollView, useColorScheme,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
 import { setVault } from '../utils/api';
 import { saveAuth } from '../utils/storage';
 import { useVault } from '../context/VaultContext';
+
+function useTheme() {
+  const scheme = useColorScheme();
+  const dark = scheme !== 'light';
+  return {
+    dark,
+    bg:                   dark ? '#000'     : '#ffffff',
+    card:                 dark ? '#0d0d0d'  : '#f5f5f5',
+    input:                dark ? '#111'     : '#f0f0f0',
+    border:               dark ? '#1e1e1e'  : '#e0e0e0',
+    borderFocus:          dark ? '#fff'     : '#000',
+    text:                 dark ? '#fff'     : '#000',
+    textMuted:            dark ? '#555'     : '#888',
+    textDim:              dark ? '#333'     : '#bbb',
+    label:                dark ? '#555'     : '#888',
+    tabActiveBg:          dark ? '#fff'     : '#000',
+    tabActiveText:        dark ? '#000'     : '#fff',
+    tabInactiveText:      dark ? '#444'     : '#999',
+    primaryBtn:           dark ? '#fff'     : '#000',
+    primaryBtnText:       dark ? '#000'     : '#fff',
+    memberRowBg:          dark ? '#0a0a0a'  : '#f8f8f8',
+    memberRowBorder:      dark ? '#1a1a1a'  : '#e8e8e8',
+    memberSelectedBorder: dark ? '#fff'     : '#000',
+    memberSelectedBg:     dark ? '#111'     : '#efefef',
+    memberAvatarBg:       dark ? '#1a1a1a'  : '#e0e0e0',
+    avatarPlaceholderBg:  dark ? '#111'     : '#e8e8e8',
+    avatarPlaceholderBorder: dark ? '#222'  : '#d0d0d0',
+    smallBtnBorder:       dark ? '#222'     : '#d0d0d0',
+    forgotText:           dark ? '#555'     : '#888',
+    backBtnBorder:        dark ? '#333'     : '#ccc',
+    errorColor:           '#e53935',
+  };
+}
 
 const BASE_URL = (url) => url.replace(/\/$/, '');
 
@@ -23,18 +56,16 @@ export default function AuthScreen({ route, navigation }) {
   const { vaultUrl, inviteCode: prefilledInvite, addMode = false, accessKey = null } = route.params;
   const base = BASE_URL(vaultUrl);
   const { initFirstVault, addVault: addVaultCtx } = useVault();
+  const t = useTheme();
 
-  // If an invite code was passed in (from vault code), start on join tab
   const [mode, setMode] = useState(prefilledInvite ? 'join' : 'signin');
   const [members, setMembers] = useState([]);
   const [loadingMembers, setLoadingMembers] = useState(true);
   const [vaultError, setVaultError] = useState(null);
 
-  // Sign in state
   const [selectedMember, setSelectedMember] = useState(null);
   const [signinPassword, setSigninPassword] = useState('');
 
-  // Join state
   const [inviteCode, setInviteCode] = useState(prefilledInvite || '');
   const [fullName, setFullName] = useState('');
   const [joinPassword, setJoinPassword] = useState('');
@@ -161,13 +192,14 @@ export default function AuthScreen({ route, navigation }) {
   };
 
   const initials = fullName.trim().split(' ').map((w) => w[0]).join('').toUpperCase().slice(0, 2);
+  const s = makeStyles(t);
 
   if (loadingMembers) {
     return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.center}>
-          <ActivityIndicator color="#fff" />
-          <Text style={styles.loadingText}>Connecting to vault...</Text>
+      <SafeAreaView style={s.container}>
+        <View style={s.center}>
+          <ActivityIndicator color={t.text} />
+          <Text style={s.loadingText}>Connecting to vault...</Text>
         </View>
       </SafeAreaView>
     );
@@ -175,12 +207,12 @@ export default function AuthScreen({ route, navigation }) {
 
   if (vaultError) {
     return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.center}>
-          <Text style={styles.errorTitle}>Cannot reach vault</Text>
-          <Text style={styles.errorSub}>{vaultUrl}</Text>
-          <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
-            <Text style={styles.backButtonText}>Scan again</Text>
+      <SafeAreaView style={s.container}>
+        <View style={s.center}>
+          <Text style={s.errorTitle}>Cannot reach vault</Text>
+          <Text style={s.errorSub}>{vaultUrl}</Text>
+          <TouchableOpacity style={s.backButton} onPress={() => navigation.goBack()}>
+            <Text style={s.backButtonText}>Scan again</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -188,102 +220,98 @@ export default function AuthScreen({ route, navigation }) {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={s.container}>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-        <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+        <ScrollView contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled">
 
-          <View style={styles.header}>
-            <Text style={styles.title}>FamilyVault</Text>
-            <Text style={styles.vaultUrl}>{vaultUrl}</Text>
+          <View style={s.header}>
+            <Text style={s.title}>FamilyVault</Text>
+            <Text style={s.vaultUrl}>{vaultUrl}</Text>
           </View>
 
-          <View style={styles.tabs}>
-            <TouchableOpacity
-              style={[styles.tab, mode === 'signin' && styles.tabActive]}
-              onPress={() => setMode('signin')}
-            >
-              <Text style={[styles.tabText, mode === 'signin' && styles.tabTextActive]}>Sign In</Text>
+          <View style={s.tabs}>
+            <TouchableOpacity style={[s.tab, mode === 'signin' && s.tabActive]} onPress={() => setMode('signin')}>
+              <Text style={[s.tabText, mode === 'signin' && s.tabTextActive]}>Sign In</Text>
             </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.tab, mode === 'join' && styles.tabActive]}
-              onPress={() => setMode('join')}
-            >
-              <Text style={[styles.tabText, mode === 'join' && styles.tabTextActive]}>New Member</Text>
+            <TouchableOpacity style={[s.tab, mode === 'join' && s.tabActive]} onPress={() => setMode('join')}>
+              <Text style={[s.tabText, mode === 'join' && s.tabTextActive]}>New Member</Text>
             </TouchableOpacity>
           </View>
 
           {mode === 'signin' ? (
-            <View style={styles.section}>
+            <View style={s.section}>
               {members.length === 0 ? (
-                <View style={styles.emptyMembers}>
-                  <Text style={styles.emptyText}>No members yet.</Text>
-                  <Text style={styles.emptySub}>Switch to New Member to create an account.</Text>
+                <View style={s.emptyMembers}>
+                  <Text style={s.emptyText}>No members yet.</Text>
+                  <Text style={s.emptySub}>Switch to New Member to create an account.</Text>
                 </View>
               ) : (
                 <>
-                  <Text style={styles.label}>Select your name</Text>
+                  <Text style={s.label}>Select your name</Text>
                   {members.map((m) => (
                     <TouchableOpacity
                       key={m.id}
-                      style={[styles.memberRow, selectedMember === m.name && styles.memberRowSelected]}
+                      style={[s.memberRow, selectedMember === m.name && s.memberRowSelected]}
                       onPress={() => setSelectedMember(m.name)}
                     >
-                      <View style={styles.memberAvatar}>
-                        <Text style={styles.memberInitial}>{m.name[0].toUpperCase()}</Text>
+                      <View style={s.memberAvatar}>
+                        <Text style={s.memberInitial}>{m.name[0].toUpperCase()}</Text>
                       </View>
-                      <Text style={styles.memberName}>{m.name}</Text>
-                      {selectedMember === m.name && <Text style={styles.checkmark}>-</Text>}
+                      <Text style={s.memberName}>{m.name}</Text>
+                      {selectedMember === m.name && <Text style={s.checkmark}>✓</Text>}
                     </TouchableOpacity>
                   ))}
                 </>
               )}
 
-              <Text style={[styles.label, { marginTop: 20 }]}>Password</Text>
+              <Text style={[s.label, { marginTop: 20 }]}>Password</Text>
               <TextInput
-                style={styles.input}
+                style={s.input}
                 placeholder="Your password"
-                placeholderTextColor="#333"
+                placeholderTextColor={t.textMuted}
                 secureTextEntry
                 value={signinPassword}
                 onChangeText={setSigninPassword}
                 autoCapitalize="none"
               />
-              <TouchableOpacity onPress={handleForgotPassword} style={styles.forgotRow}>
-                <Text style={styles.forgotText}>Forgot password?</Text>
+              <TouchableOpacity onPress={handleForgotPassword} style={s.forgotRow}>
+                <Text style={s.forgotText}>Forgot password?</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.primaryButton, (submitting || !selectedMember) && styles.buttonDisabled]}
+                style={[s.primaryButton, (submitting || !selectedMember) && s.buttonDisabled]}
                 onPress={handleSignIn}
                 disabled={submitting || !selectedMember}
               >
-                {submitting ? <ActivityIndicator color="#000" /> : <Text style={styles.primaryButtonText}>Sign In</Text>}
+                {submitting
+                  ? <ActivityIndicator color={t.primaryBtnText} />
+                  : <Text style={s.primaryButtonText}>Sign In</Text>}
               </TouchableOpacity>
             </View>
           ) : (
-            <View style={styles.section}>
-              <View style={styles.avatarRow}>
+            <View style={s.section}>
+              <View style={s.avatarRow}>
                 {profilePicUri ? (
-                  <Image source={{ uri: profilePicUri }} style={styles.avatar} />
+                  <Image source={{ uri: profilePicUri }} style={s.avatar} />
                 ) : (
-                  <View style={styles.avatarPlaceholder}>
-                    <Text style={styles.avatarInitials}>{initials || '?'}</Text>
+                  <View style={s.avatarPlaceholder}>
+                    <Text style={s.avatarInitials}>{initials || '?'}</Text>
                   </View>
                 )}
-                <View style={styles.avatarButtons}>
-                  <TouchableOpacity style={styles.smallButton} onPress={() => pickPhoto(true)}>
-                    <Text style={styles.smallButtonText}>Camera</Text>
+                <View style={s.avatarButtons}>
+                  <TouchableOpacity style={s.smallButton} onPress={() => pickPhoto(true)}>
+                    <Text style={s.smallButtonText}>Camera</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity style={styles.smallButton} onPress={() => pickPhoto(false)}>
-                    <Text style={styles.smallButtonText}>Gallery</Text>
+                  <TouchableOpacity style={s.smallButton} onPress={() => pickPhoto(false)}>
+                    <Text style={s.smallButtonText}>Gallery</Text>
                   </TouchableOpacity>
                 </View>
               </View>
 
-              <Text style={styles.label}>Invite code</Text>
+              <Text style={s.label}>Invite code</Text>
               <TextInput
-                style={[styles.input, prefilledInvite && { color: '#555', borderColor: '#111' }]}
+                style={[s.input, prefilledInvite && { color: t.textDim, borderColor: t.border }]}
                 placeholder="e.g. A3F7B2"
-                placeholderTextColor="#333"
+                placeholderTextColor={t.textMuted}
                 value={inviteCode}
                 onChangeText={prefilledInvite ? undefined : setInviteCode}
                 editable={!prefilledInvite}
@@ -291,24 +319,24 @@ export default function AuthScreen({ route, navigation }) {
                 autoCorrect={false}
               />
               {prefilledInvite && (
-                <Text style={{ color: '#333', fontSize: 11, marginTop: -4 }}>From your vault code</Text>
+                <Text style={{ color: t.textDim, fontSize: 11, marginTop: -4 }}>From your vault code</Text>
               )}
 
-              <Text style={styles.label}>Full name</Text>
+              <Text style={s.label}>Full name</Text>
               <TextInput
-                style={styles.input}
-                placeholder="e.g. Levi Eichelberg"
-                placeholderTextColor="#333"
+                style={s.input}
+                placeholder="Your name"
+                placeholderTextColor={t.textMuted}
                 value={fullName}
                 onChangeText={setFullName}
                 autoCorrect={false}
               />
 
-              <Text style={styles.label}>Password</Text>
+              <Text style={s.label}>Password</Text>
               <TextInput
-                style={styles.input}
+                style={s.input}
                 placeholder="Choose a password"
-                placeholderTextColor="#333"
+                placeholderTextColor={t.textMuted}
                 secureTextEntry
                 value={joinPassword}
                 onChangeText={setJoinPassword}
@@ -316,11 +344,13 @@ export default function AuthScreen({ route, navigation }) {
               />
 
               <TouchableOpacity
-                style={[styles.primaryButton, submitting && styles.buttonDisabled]}
+                style={[s.primaryButton, submitting && s.buttonDisabled]}
                 onPress={handleJoin}
                 disabled={submitting}
               >
-                {submitting ? <ActivityIndicator color="#000" /> : <Text style={styles.primaryButtonText}>Join Family Vault</Text>}
+                {submitting
+                  ? <ActivityIndicator color={t.primaryBtnText} />
+                  : <Text style={s.primaryButtonText}>Join Family Vault</Text>}
               </TouchableOpacity>
             </View>
           )}
@@ -330,66 +360,68 @@ export default function AuthScreen({ route, navigation }) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#000' },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, padding: 24 },
-  loadingText: { color: '#444', fontSize: 13, marginTop: 8 },
-  errorTitle: { color: '#fff', fontSize: 18, fontWeight: '600' },
-  errorSub: { color: '#444', fontSize: 13 },
-  backButton: { borderWidth: 1, borderColor: '#333', borderRadius: 8, paddingVertical: 12, paddingHorizontal: 28, marginTop: 8 },
-  backButtonText: { color: '#fff', fontSize: 14 },
-  scroll: { padding: 24, paddingBottom: 60 },
-  header: { marginBottom: 28 },
-  title: { color: '#fff', fontSize: 26, fontWeight: '700' },
-  vaultUrl: { color: '#333', fontSize: 12, marginTop: 4 },
-  tabs: {
-    flexDirection: 'row', borderWidth: 1, borderColor: '#222',
-    borderRadius: 10, marginBottom: 28, overflow: 'hidden',
-  },
-  tab: { flex: 1, paddingVertical: 12, alignItems: 'center', backgroundColor: '#000' },
-  tabActive: { backgroundColor: '#fff' },
-  tabText: { color: '#444', fontSize: 14, fontWeight: '500' },
-  tabTextActive: { color: '#000', fontWeight: '700' },
-  section: { gap: 10 },
-  label: { color: '#555', fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 2 },
-  input: {
-    backgroundColor: '#111', color: '#fff',
-    borderWidth: 1, borderColor: '#1e1e1e', borderRadius: 8,
-    padding: 14, fontSize: 15, marginBottom: 6,
-  },
-  memberRow: {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    padding: 14, borderRadius: 8, borderWidth: 1, borderColor: '#1a1a1a',
-    backgroundColor: '#0a0a0a', marginBottom: 6,
-  },
-  memberRowSelected: { borderColor: '#fff', backgroundColor: '#111' },
-  memberAvatar: {
-    width: 36, height: 36, borderRadius: 18,
-    backgroundColor: '#1a1a1a', alignItems: 'center', justifyContent: 'center',
-  },
-  memberInitial: { color: '#fff', fontSize: 15, fontWeight: '600' },
-  memberName: { color: '#fff', fontSize: 15, flex: 1 },
-  checkmark: { color: '#fff', fontSize: 18, fontWeight: '300' },
-  emptyMembers: { padding: 24, alignItems: 'center', gap: 6 },
-  emptyText: { color: '#444', fontSize: 15 },
-  emptySub: { color: '#2a2a2a', fontSize: 12, textAlign: 'center' },
-  avatarRow: { alignItems: 'center', gap: 14, marginBottom: 8 },
-  avatar: { width: 88, height: 88, borderRadius: 44, backgroundColor: '#111' },
-  avatarPlaceholder: {
-    width: 88, height: 88, borderRadius: 44,
-    backgroundColor: '#111', borderWidth: 1, borderColor: '#222',
-    alignItems: 'center', justifyContent: 'center',
-  },
-  avatarInitials: { color: '#fff', fontSize: 28, fontWeight: '300' },
-  avatarButtons: { flexDirection: 'row', gap: 10 },
-  smallButton: { borderWidth: 1, borderColor: '#222', borderRadius: 7, paddingVertical: 8, paddingHorizontal: 18 },
-  smallButtonText: { color: '#fff', fontSize: 13 },
-  forgotRow: { alignSelf: 'flex-end', marginTop: -2, marginBottom: 4 },
-  forgotText: { color: '#555', fontSize: 12 },
-  primaryButton: {
-    backgroundColor: '#fff', borderRadius: 8,
-    paddingVertical: 15, alignItems: 'center', marginTop: 10,
-  },
-  buttonDisabled: { opacity: 0.3 },
-  primaryButtonText: { color: '#000', fontWeight: '700', fontSize: 15 },
-});
+function makeStyles(t) {
+  return StyleSheet.create({
+    container:            { flex: 1, backgroundColor: t.bg },
+    center:               { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, padding: 24 },
+    loadingText:          { color: t.textMuted, fontSize: 13, marginTop: 8 },
+    errorTitle:           { color: t.text, fontSize: 18, fontWeight: '600' },
+    errorSub:             { color: t.textMuted, fontSize: 13 },
+    backButton:           { borderWidth: 1, borderColor: t.backBtnBorder, borderRadius: 8, paddingVertical: 12, paddingHorizontal: 28, marginTop: 8 },
+    backButtonText:       { color: t.text, fontSize: 14 },
+    scroll:               { padding: 24, paddingBottom: 60 },
+    header:               { marginBottom: 28 },
+    title:                { color: t.text, fontSize: 26, fontWeight: '700' },
+    vaultUrl:             { color: t.textDim, fontSize: 12, marginTop: 4 },
+    tabs: {
+      flexDirection: 'row', borderWidth: 1, borderColor: t.border,
+      borderRadius: 10, marginBottom: 28, overflow: 'hidden',
+    },
+    tab:                  { flex: 1, paddingVertical: 12, alignItems: 'center', backgroundColor: t.bg },
+    tabActive:            { backgroundColor: t.tabActiveBg },
+    tabText:              { color: t.tabInactiveText, fontSize: 14, fontWeight: '500' },
+    tabTextActive:        { color: t.tabActiveText, fontWeight: '700' },
+    section:              { gap: 10 },
+    label:                { color: t.label, fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 2 },
+    input: {
+      backgroundColor: t.input, color: t.text,
+      borderWidth: 1, borderColor: t.border, borderRadius: 8,
+      padding: 14, fontSize: 15, marginBottom: 6,
+    },
+    memberRow: {
+      flexDirection: 'row', alignItems: 'center', gap: 12,
+      padding: 14, borderRadius: 8, borderWidth: 1, borderColor: t.memberRowBorder,
+      backgroundColor: t.memberRowBg, marginBottom: 6,
+    },
+    memberRowSelected:    { borderColor: t.memberSelectedBorder, backgroundColor: t.memberSelectedBg },
+    memberAvatar: {
+      width: 36, height: 36, borderRadius: 18,
+      backgroundColor: t.memberAvatarBg, alignItems: 'center', justifyContent: 'center',
+    },
+    memberInitial:        { color: t.text, fontSize: 15, fontWeight: '600' },
+    memberName:           { color: t.text, fontSize: 15, flex: 1 },
+    checkmark:            { color: t.text, fontSize: 16, fontWeight: '600' },
+    emptyMembers:         { padding: 24, alignItems: 'center', gap: 6 },
+    emptyText:            { color: t.textMuted, fontSize: 15 },
+    emptySub:             { color: t.textDim, fontSize: 12, textAlign: 'center' },
+    avatarRow:            { alignItems: 'center', gap: 14, marginBottom: 8 },
+    avatar:               { width: 88, height: 88, borderRadius: 44, backgroundColor: t.input },
+    avatarPlaceholder: {
+      width: 88, height: 88, borderRadius: 44,
+      backgroundColor: t.avatarPlaceholderBg, borderWidth: 1, borderColor: t.avatarPlaceholderBorder,
+      alignItems: 'center', justifyContent: 'center',
+    },
+    avatarInitials:       { color: t.text, fontSize: 28, fontWeight: '300' },
+    avatarButtons:        { flexDirection: 'row', gap: 10 },
+    smallButton:          { borderWidth: 1, borderColor: t.smallBtnBorder, borderRadius: 7, paddingVertical: 8, paddingHorizontal: 18 },
+    smallButtonText:      { color: t.text, fontSize: 13 },
+    forgotRow:            { alignSelf: 'flex-end', marginTop: -2, marginBottom: 4 },
+    forgotText:           { color: t.forgotText, fontSize: 12 },
+    primaryButton: {
+      backgroundColor: t.primaryBtn, borderRadius: 8,
+      paddingVertical: 15, alignItems: 'center', marginTop: 10,
+    },
+    buttonDisabled:       { opacity: 0.3 },
+    primaryButtonText:    { color: t.primaryBtnText, fontWeight: '700', fontSize: 15 },
+  });
+}
