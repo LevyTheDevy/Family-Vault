@@ -4,6 +4,8 @@ services:
     ports:
       - "3000:3000"              # App API — accessible on LAN and via Cloudflare tunnel
       - "3001:3001"              # Admin panel — LAN only (Cloudflare only tunnels 3000)
+    environment:
+      - PUBLIC_URL=${PUBLIC_URL:-}
     volumes:
       - vault-data:/data
       - vault-storage:/storage

@@ -22,32 +22,20 @@ Once installed, open Docker Desktop and make sure it is running (you will see a 
 
 Download this repository as a ZIP file from GitHub (click the green Code button, then Download ZIP), then unzip it somewhere you will remember, like your Documents folder.
 
-### Step 3 — Start the server
+### Step 3 — Run the setup script
 
-Open a terminal in the folder you unzipped:
+This detects your IP, configures everything, starts the server, and opens the admin panel automatically.
 
-- Windows: right-click the folder and choose "Open in Terminal"
-- Mac: right-click the folder, hold Option, and choose "Open Terminal Here"
+- **Windows:** Double-click `start.bat`
+- **Mac / Linux:** Open a terminal in the folder and run `./start.sh`
 
-Then run:
-
-```
-docker compose up -d
-```
-
-That is it. Docker will download everything it needs, build the server, and start it. The first run takes a few minutes.
+The first run takes a few minutes while Docker builds the server. After that it starts in seconds.
 
 ### Step 4 — Create your admin account
 
-Open your browser and go to:
+The setup script opens the admin panel in your browser automatically. Create your admin account there.
 
-```
-http://localhost:3001/admin
-```
-
-The admin panel runs on port 3001. It is accessible from any device on your local network but is never reachable through Cloudflare or the internet — Cloudflare only tunnels port 3000.
-
-Create your admin account here. This gives you access to the admin panel where you can create invite links for family members.
+The admin panel is only accessible on your local network — it is never reachable from the internet.
 
 ### Step 5 — Invite family members
 
