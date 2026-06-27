@@ -732,9 +732,6 @@ let VAULT_KEY = (() => {
   try { const k = sessionStorage.getItem('fv_vault_key'); return k ? fromHex(k) : null; } catch { return null; }
 })();
 
-const toHex = buf => Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
-const fromHex = s => new Uint8Array(s.match(/.{2}/g).map(b => parseInt(b,16)));
-
 async function pbkdf2Key(password, saltHex) {
   const km = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveKey']);
   return crypto.subtle.deriveKey(
