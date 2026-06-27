@@ -53,7 +53,7 @@ export default function JoinScreen({ route, navigation }) {
 
   async function fetchInvite() {
     try {
-      const data = await apiFetch(`${base}/auth/invite/${inviteToken}`);
+      const data = await apiFetch(`${base}/invite/${inviteToken}`);
       setVaultName(data.vaultName || 'Family Vault');
       setInviteCrypto({
         inviteKdfSalt: data.inviteKdfSalt,

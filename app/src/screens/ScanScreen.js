@@ -110,8 +110,8 @@ export default function ScanScreen({ navigation, route }) {
           <Text style={[s.tabText, tab === 'scan' && s.tabTextActive]}>Scan QR</Text>
         </TouchableOpacity>
         <TouchableOpacity style={[s.tab, tab === 'code' && s.tabActive]} onPress={() => setTab('code')}>
-          <Feather name="type" size={14} color={tab === 'code' ? t.tabActiveText : t.tabInactiveText} />
-          <Text style={[s.tabText, tab === 'code' && s.tabTextActive]}>Enter Code</Text>
+          <Feather name="link" size={14} color={tab === 'code' ? t.tabActiveText : t.tabInactiveText} />
+          <Text style={[s.tabText, tab === 'code' && s.tabTextActive]}>Enter Link</Text>
         </TouchableOpacity>
       </View>
 
@@ -152,15 +152,14 @@ export default function ScanScreen({ navigation, route }) {
           <ScrollView contentContainerStyle={s.codeWrap} keyboardShouldPersistTaps="handled">
             <View style={s.codeCard}>
               <Feather name="key" size={32} color={t.iconMuted} style={{ marginBottom: 16 }} />
-              <Text style={s.codeTitle}>Enter your vault code</Text>
+              <Text style={s.codeTitle}>Enter your invite link</Text>
               <Text style={s.codeDesc}>
-                Your admin shares a code that looks like:{'\n'}
-                <Text style={s.codeExample}>yourserver.com/A3B2C8</Text>
+                Paste the invite link shared by your admin
               </Text>
 
               <TextInput
                 style={s.codeInput}
-                placeholder="yourserver.com/ABC123"
+                placeholder="http://192.168.1.x:3000/invite/..."
                 placeholderTextColor={t.textMuted}
                 value={manualCode}
                 onChangeText={(v) => { setManualCode(v); setManualError(''); }}

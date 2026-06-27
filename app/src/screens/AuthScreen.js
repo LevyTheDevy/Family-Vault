@@ -312,21 +312,6 @@ export default function AuthScreen({ route, navigation }) {
                 </View>
               </View>
 
-              <Text style={s.label}>Invite code</Text>
-              <TextInput
-                style={[s.input, prefilledInvite && { color: t.textDim, borderColor: t.border }]}
-                placeholder="e.g. A3F7B2"
-                placeholderTextColor={t.textMuted}
-                value={inviteCode}
-                onChangeText={prefilledInvite ? undefined : setInviteCode}
-                editable={!prefilledInvite}
-                autoCapitalize="characters"
-                autoCorrect={false}
-              />
-              {prefilledInvite && (
-                <Text style={{ color: t.textDim, fontSize: 11, marginTop: -4 }}>From your vault code</Text>
-              )}
-
               <Text style={s.label}>Full name</Text>
               <TextInput
                 style={s.input}
