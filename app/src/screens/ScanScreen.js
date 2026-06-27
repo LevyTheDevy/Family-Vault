@@ -72,7 +72,7 @@ export default function ScanScreen({ navigation, route }) {
   const proceed = (raw) => {
     const parsed = parseCode(raw);
     if (parsed.type === 'invite') {
-      navigation.navigate('Join', { serverUrl: parsed.serverUrl, inviteToken: parsed.inviteToken });
+      navigation.navigate('Join', { serverUrl: parsed.serverUrl, inviteToken: parsed.inviteToken, addMode });
     } else {
       navigation.navigate('Auth', { vaultUrl: parsed.vaultUrl, inviteCode: parsed.inviteCode, addMode, accessKey: parsed.accessKey });
     }

@@ -32,10 +32,10 @@ async function apiFetch(url, options = {}) {
 }
 
 export default function JoinScreen({ route, navigation }) {
-  const { serverUrl, inviteToken } = route.params;
+  const { serverUrl, inviteToken, addMode = false } = route.params;
   const base = serverUrl.replace(/\/$/, '');
   const t = useTheme();
-  const { initFirstVault, deriveAndStoreVaultKey } = useVault();
+  const { initFirstVault, addVault: addVaultCtx, deriveAndStoreVaultKey } = useVault();
 
   const [loading, setLoading] = useState(true);
   const [vaultName, setVaultName] = useState('Family Vault');
@@ -111,12 +111,11 @@ export default function JoinScreen({ route, navigation }) {
         }),
       });
 
-      await initFirstVault({
-        vaultUrl: base,
-        token: result.token,
-        name: result.name,
-        vaultName,
-      });
+      if (addMode) {
+        await addVaultCtx({ vaultUrl: base, token: result.token, name: result.name, vaultName });
+      } else {
+        await initFirstVault({ vaultUrl: base, token: result.token, name: result.name, vaultName });
+      }
 
       navigation.reset({ index: 0, routes: [{ name: 'Main' }] });
     } catch (e) {
