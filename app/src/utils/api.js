@@ -23,6 +23,10 @@ export const getDecryptFn = () => _decryptFn;
 export const getDecryptImgFn = () => _decryptImgFn;       // legacy encb: path
 export const getDecryptImgBinFn = () => _decryptImgBinFn; // new binary path
 
+let _feedDirty = false;
+export const markFeedDirty = () => { _feedDirty = true; };
+export const consumeFeedDirty = () => { const d = _feedDirty; _feedDirty = false; return d; };
+
 async function encryptBytes(jpegBytes) {
   const LegacyFS = require('expo-file-system/legacy');
   const { File } = require('expo-file-system');
@@ -259,6 +263,7 @@ export async function uploadPhotos(imageUris, caption = '', collectionId = null)
   console.log('[FV] uploadPhotos: POSTing to', `${_url}/posts`);
   const post = await req(`${_url}/posts`, { method: 'POST', headers: h(), body: fd });
   console.log('[FV] uploadPhotos: success, post id', post?.id);
+  markFeedDirty();
   if (collectionId) await addToCollection(collectionId, post.id).catch(() => {});
   return decryptPost(addTokenToPost(post));
 }
@@ -289,6 +294,7 @@ export async function uploadVideo(videoUri, thumbnailUri = null, caption = '', d
   if (durationSecs != null) fd.append('durationSecs', String(durationSecs));
   if (onProgress) onProgress(0.5); // indeterminate for small uploads
   const post = await req(`${_url}/posts`, { method: 'POST', headers: h(), body: fd });
+  markFeedDirty();
   if (collectionId) await addToCollection(collectionId, post.id).catch(() => {});
   if (onProgress) onProgress(1);
   return decryptPost(addTokenToPost(post));
@@ -361,6 +367,7 @@ async function uploadVideoChunked(videoUri, thumbnailUri, caption, durationSecs,
     method: 'POST', headers: jh(),
     body: JSON.stringify({ videoFilename, thumbnailFilename, caption: encCaption, durationSecs }),
   });
+  markFeedDirty();
   if (collectionId) await addToCollection(collectionId, post.id).catch(() => {});
   return decryptPost(addTokenToPost(post));
 }

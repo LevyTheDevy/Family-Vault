@@ -13,6 +13,12 @@ const ENC_CACHE_DIR = FileSystem.cacheDirectory + 'fv-enc/';
 const _inflight = new Map(); // cacheFile → Promise  (prevents double-decrypt of same file)
 const _memCache = new Map(); // filename  → local path (avoids disk I/O after first decrypt)
 
+function getCachedUri(uri) {
+  if (!uri || !isEncrypted(uri)) return null;
+  const filename = uri.match(/\/storage\/([^?#]+)/)?.[1];
+  return filename ? (_memCache.get(filename) ?? null) : null;
+}
+
 function cacheKey(uri) {
   if (!uri) return undefined;
   const storage = uri.match(/\/storage\/([^?#]+)/);
@@ -107,16 +113,29 @@ async function decryptAndCache(uri) {
 export default function CachedImage({ uri, style, resizeMode = 'cover', transparent = false, ...props }) {
   const { cryptoReady } = useVault();
   const encrypted = isEncrypted(uri);
-  const [decryptedUri, setDecryptedUri] = useState(null);
+  // Initialise synchronously from memCache — avoids gray flash on FlatList remount
+  const [decryptedUri, setDecryptedUri] = useState(() => getCachedUri(uri));
 
   useEffect(() => {
     if (!encrypted || !uri) return;
+    const cached = getCachedUri(uri);
+    if (cached) { setDecryptedUri(cached); return; }
     let cancelled = false;
+    let retryTimer;
     setDecryptedUri(null);
     decryptAndCache(uri)
       .then((u) => { if (!cancelled && u) setDecryptedUri(u); })
-      .catch(() => {});
-    return () => { cancelled = true; };
+      .catch(() => {
+        if (cancelled) return;
+        // Auto-retry once after 2s for transient failures (server cold-start, network blip)
+        retryTimer = setTimeout(() => {
+          if (cancelled) return;
+          decryptAndCache(uri)
+            .then((u) => { if (!cancelled && u) setDecryptedUri(u); })
+            .catch(() => {});
+        }, 2000);
+      });
+    return () => { cancelled = true; clearTimeout(retryTimer); };
   }, [uri, encrypted, cryptoReady]);
 
   if (!uri) {

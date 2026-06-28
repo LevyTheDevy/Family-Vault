@@ -4,7 +4,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import PostSlide from '../components/PostSlide';
 import StoriesStrip from '../components/StoriesStrip';
 import CommentsSheet from '../components/CommentsSheet';
-import { fetchPosts, fetchStories, getMemberName } from '../utils/api';
+import { fetchPosts, fetchStories, getMemberName, consumeFeedDirty } from '../utils/api';
 import { useTheme } from '../context/ThemeContext';
 import { useVault } from '../context/VaultContext';
 
@@ -28,6 +28,8 @@ export default function FeedScreen({ navigation }) {
   const hasMoreRef = useRef(true);
   const lastFetchRef = useRef(0);
   const listHeightRef = useRef(0);
+  const fetchingRef = useRef(false);
+  const hasDataRef = useRef(false);
 
   async function loadFeed(reset = true) {
     const off = reset ? 0 : offsetRef.current;
@@ -35,6 +37,7 @@ export default function FeedScreen({ navigation }) {
     hasMoreRef.current = hasMore;
     if (reset) {
       setPosts(newPosts);
+      hasDataRef.current = newPosts.length > 0;
       offsetRef.current = newPosts.length;
       setActivePostId(newPosts[0]?.id ?? null);
     } else {
@@ -63,28 +66,40 @@ export default function FeedScreen({ navigation }) {
   }, []);
 
   useFocusEffect(useCallback(() => {
-    const stale = Date.now() - lastFetchRef.current > STALE_MS;
-    if (!stale && posts.length > 0) {
+    const stale = consumeFeedDirty() || Date.now() - lastFetchRef.current > STALE_MS;
+    let active = true;
+
+    if (!stale && hasDataRef.current) {
       const timer = setInterval(() => {
         setStories((prev) => prev.filter((st) => !st.expiresAt || new Date(st.expiresAt) > new Date()));
       }, 60_000);
-      return () => clearInterval(timer);
+      return () => { active = false; clearInterval(timer); };
     }
 
-    setLoading(true);
-    load().finally(() => setLoading(false));
+    if (!fetchingRef.current) {
+      fetchingRef.current = true;
+      // Only show full spinner on first load; background refresh keeps existing posts visible
+      if (!hasDataRef.current) setLoading(true);
+      load()
+        .catch(() => {})
+        .finally(() => { fetchingRef.current = false; if (active) setLoading(false); });
+    }
 
     const timer = setInterval(() => {
       setStories((prev) => prev.filter((st) => !st.expiresAt || new Date(st.expiresAt) > new Date()));
     }, 60_000);
-    return () => clearInterval(timer);
-  }, [posts.length]));
+    return () => { active = false; clearInterval(timer); };
+  }, []));
 
   const mountedRef = useRef(false);
   useEffect(() => {
     if (!mountedRef.current) { mountedRef.current = true; return; }
+    fetchingRef.current = false; // reset guard on vault switch so fresh load runs
+    lastFetchRef.current = 0;
+    hasDataRef.current = false;
     setLoading(true);
-    load().finally(() => setLoading(false));
+    fetchingRef.current = true;
+    load().catch(() => {}).finally(() => { fetchingRef.current = false; setLoading(false); });
   }, [activeIndex]);
 
   const onRefresh = useCallback(async () => {
