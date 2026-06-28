@@ -405,6 +405,22 @@ export async function sendChatMedia(conversationId, uri, mimeType) {
 // Backward-compat alias
 export const uploadPhoto = (uri, caption, colId) => uploadPhotos([uri], caption, colId);
 
+// Single encrypted video post (trimmed on-device via react-native-video-trim)
+export async function uploadEncryptedVideo(encVideoUri, encThumbUri, caption = '', durationSecs = null, collectionId = null, onProgress = null) {
+  const fd = new FormData();
+  fd.append('video', { uri: encVideoUri, type: 'video/mp4', name: 'video.enc' });
+  if (encThumbUri) fd.append('thumbnail', { uri: encThumbUri, type: 'image/jpeg', name: 'thumb.enc' });
+  if (durationSecs != null) fd.append('durationSecs', String(Math.round(durationSecs)));
+  const encCaption = await encryptMsg(caption);
+  if (encCaption) fd.append('caption', encCaption);
+  if (onProgress) onProgress(0.5);
+  const post = await req(`${_url}/posts`, { method: 'POST', headers: h(), body: fd });
+  markFeedDirty();
+  if (collectionId) await addToCollection(collectionId, post.id).catch(() => {});
+  if (onProgress) onProgress(1);
+  return decryptPost(addTokenToPost(post));
+}
+
 // Multi-clip encrypted video post
 // clips: [{ encVideoUri, encThumbUri, durationSecs }]
 export async function uploadVideoPost(clips, caption = '', collectionId = null, onProgress = null) {

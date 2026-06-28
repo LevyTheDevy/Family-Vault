@@ -9,9 +9,9 @@ import * as ImageManipulator from 'expo-image-manipulator';
 import { Video, ResizeMode } from 'expo-av';
 import { Feather } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { uploadPhotos, uploadVideoPost, fetchCollections, getEncryptImgBinFn } from '../utils/api';
-import { processVideoClips, cleanupEncryptedClips } from '../utils/videoProcessing';
-import VideoTrimmer from '../components/VideoTrimmer';
+import VideoTrim, { showEditor, getFrameAt, deleteFile as deleteTrimFile } from 'react-native-video-trim';
+import { uploadPhotos, uploadEncryptedVideo, fetchCollections, getEncryptImgBinFn } from '../utils/api';
+import { encryptLocalVideo, cleanupTempFiles } from '../utils/videoProcessing';
 import { useTheme } from '../context/ThemeContext';
 import { useToast } from '../context/ToastContext';
 
@@ -347,7 +347,8 @@ function EditStep({ assets, onNext, onBack, insets }) {
 }
 
 // ─── Step 2: Caption + collection + post ─────────────────────────────────────
-function CaptionStep({ assets, editedAssets, filterIdx, videoTrimParams, onBack, onDone, insets }) {
+// trimmedVideo: { uri: string, durationMs: number } — set by root after native trim UI
+function CaptionStep({ assets, editedAssets, filterIdx, trimmedVideo, onBack, onDone, insets }) {
   const { colors } = useTheme();
   const [finalAssets] = useState(editedAssets || assets);
   const [caption, setCaption] = useState('');
@@ -364,26 +365,34 @@ function CaptionStep({ assets, editedAssets, filterIdx, videoTrimParams, onBack,
   const handlePost = async () => {
     setUploading(true);
     setUploadPct(0);
-    let encryptedClips = null;
+    let encVideoUri = null, encThumbUri = null;
     try {
-      if (isVideo && videoTrimParams) {
-        const { startSec, endSec, numClips } = videoTrimParams;
-        const encryptImgBinFn = getEncryptImgBinFn();
-        if (!encryptImgBinFn) throw new Error('Vault not unlocked — please log in again');
+      if (isVideo && trimmedVideo) {
+        const encBinFn = getEncryptImgBinFn();
+        if (!encBinFn) throw new Error('Vault not unlocked — please log in again');
 
-        setProgress('Trimming…');
-        encryptedClips = await processVideoClips(
-          assets[0].uri, startSec, endSec, numClips,
-          encryptImgBinFn,
-          (pct) => { setUploadPct(Math.round(pct * 60)); setProgress(`Processing clip ${Math.ceil(pct * numClips)}/${numClips}…`); },
-        );
+        setProgress('Extracting thumbnail…');
+        let thumbPath = null;
+        try {
+          const frame = await getFrameAt(trimmedVideo.uri, { time: 0, format: 'jpeg', quality: 80 });
+          thumbPath = frame.outputPath;
+        } catch {}
+
+        setProgress('Encrypting…');
+        encVideoUri = await encryptLocalVideo(trimmedVideo.uri, encBinFn);
+        if (thumbPath) encThumbUri = await encryptLocalVideo(thumbPath, encBinFn);
+        setUploadPct(50);
 
         setProgress('Uploading…');
-        await uploadVideoPost(
-          encryptedClips, caption.trim(), selectedCollection,
-          (pct) => setUploadPct(60 + Math.round(pct * 40)),
+        await uploadEncryptedVideo(
+          encVideoUri, encThumbUri,
+          caption.trim(),
+          trimmedVideo.durationMs ? Math.round(trimmedVideo.durationMs / 1000) : null,
+          selectedCollection,
+          (pct) => setUploadPct(50 + Math.round(pct * 50)),
         );
-        cleanupEncryptedClips(encryptedClips).catch(() => {});
+
+        deleteTrimFile(trimmedVideo.uri).catch(() => {});
       } else {
         setProgress('Uploading…');
         const uris = finalAssets.map((a) => a.uri);
@@ -393,9 +402,9 @@ function CaptionStep({ assets, editedAssets, filterIdx, videoTrimParams, onBack,
       toast?.success('Posted to vault!');
       onDone();
     } catch (e) {
-      if (encryptedClips) cleanupEncryptedClips(encryptedClips).catch(() => {});
       Alert.alert('Upload failed', e.message || 'Could not reach the vault.');
     } finally {
+      cleanupTempFiles([encVideoUri, encThumbUri]).catch(() => {});
       setUploading(false);
       setProgress('');
       setUploadPct(0);
@@ -482,12 +491,48 @@ export default function PostScreen({ navigation }) {
   const [step, setStep] = useState(0);
   const [pickedAssets, setPickedAssets] = useState([]);
   const [editResult, setEditResult] = useState(null);
-  const [trimParams, setTrimParams] = useState(null); // { startSec, endSec, numClips }
+  const [trimmedVideo, setTrimmedVideo] = useState(null); // { uri, durationMs }
+  const trimSubs = useRef([]);
   const insets = useSafeAreaInsets();
 
   const isVideoFlow = pickedAssets[0]?.mediaType === 'video';
-  // Steps: 0=Pick, 1=Edit(photo)/Trim(video), 2=Caption
-  const titles = ['New Post', isVideoFlow ? 'Trim' : 'Edit', 'Caption'];
+  const titles = ['New Post', 'Edit', 'Caption'];
+
+  // Register VideoTrim event listeners when a trim is initiated; clean up after result
+  const cleanupTrimSubs = () => {
+    trimSubs.current.forEach((s) => s?.remove());
+    trimSubs.current = [];
+  };
+
+  const openTrimEditor = (asset) => {
+    cleanupTrimSubs();
+    trimSubs.current = [
+      VideoTrim.onFinishTrimming(({ outputPath, duration }) => {
+        cleanupTrimSubs();
+        setTrimmedVideo({ uri: outputPath, durationMs: duration });
+        setStep(2);
+      }),
+      VideoTrim.onCancel(() => {
+        cleanupTrimSubs();
+        setStep(0);
+      }),
+      VideoTrim.onError(({ message }) => {
+        cleanupTrimSubs();
+        Alert.alert('Could not trim video', message);
+        setStep(0);
+      }),
+    ];
+    showEditor(asset.uri, {
+      maxDuration: 60000,
+      enableSaveDialog: false,
+      enableCancelDialog: false,
+      headerText: 'Trim Video',
+      saveButtonText: 'Continue',
+      cancelButtonText: 'Back',
+    });
+  };
+
+  useEffect(() => () => cleanupTrimSubs(), []);
 
   useEffect(() => {
     navigation.setOptions({
@@ -501,26 +546,22 @@ export default function PostScreen({ navigation }) {
         </TouchableOpacity>
       ),
     });
-  }, [step, colors, isVideoFlow]);
+  }, [step, colors]);
+
+  const handlePickerDone = (assets) => {
+    setPickedAssets(assets);
+    if (assets[0]?.mediaType === 'video') {
+      openTrimEditor(assets[0]); // opens native trim UI; result handled via events
+    } else {
+      setStep(1);
+    }
+  };
 
   return (
     <View style={[s.root, { backgroundColor: colors.bg }]}>
       <StatusBar barStyle={isLight ? 'dark-content' : 'light-content'} />
       {step === 0 && (
-        <PickerStep
-          insets={insets}
-          onNext={(assets) => { setPickedAssets(assets); setStep(1); }}
-        />
-      )}
-      {step === 1 && isVideoFlow && (
-        <VideoTrimmer
-          videoUri={pickedAssets[0].uri}
-          durationSec={(pickedAssets[0].duration || 0) / 1000}
-          maxClipSec={30}
-          maxClips={5}
-          onBack={() => setStep(0)}
-          onConfirm={(params) => { setTrimParams(params); setStep(2); }}
-        />
+        <PickerStep insets={insets} onNext={handlePickerDone} />
       )}
       {step === 1 && !isVideoFlow && (
         <EditStep
@@ -535,9 +576,9 @@ export default function PostScreen({ navigation }) {
           assets={pickedAssets}
           editedAssets={editResult?.editedAssets}
           filterIdx={editResult?.filterIdx ?? 0}
-          videoTrimParams={trimParams}
+          trimmedVideo={trimmedVideo}
           insets={insets}
-          onBack={() => setStep(1)}
+          onBack={() => isVideoFlow ? setStep(0) : setStep(1)}
           onDone={() => navigation.goBack()}
         />
       )}

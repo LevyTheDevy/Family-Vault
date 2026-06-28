@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, Image, Alert,
   ActivityIndicator, TextInput, ScrollView, KeyboardAvoidingView, Platform,
@@ -7,9 +7,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import { Video, ResizeMode } from 'expo-av';
 import { Feather } from '@expo/vector-icons';
+import VideoTrim, { showEditor, getFrameAt, deleteFile as deleteTrimFile } from 'react-native-video-trim';
 import { uploadStory, getEncryptImgBinFn } from '../utils/api';
-import { processVideoClips, cleanupEncryptedClips } from '../utils/videoProcessing';
-import VideoTrimmer from '../components/VideoTrimmer';
+import { encryptLocalVideo, cleanupTempFiles } from '../utils/videoProcessing';
 import { useTheme } from '../context/ThemeContext';
 
 const DURATIONS = [
@@ -21,72 +21,95 @@ const DURATIONS = [
 ];
 
 const PICK_OPTS = { mediaTypes: ['images'], quality: 0.9, allowsEditing: true, aspect: [9, 16] };
-
-// 5s max per clip, up to 5 clips for stories
-const STORY_MAX_CLIP_SEC = 5;
-const STORY_MAX_CLIPS = 5;
+const STORY_MAX_DURATION_MS = 30000; // 30s for story video
 
 export default function StoryCreateScreen({ navigation }) {
   const { colors } = useTheme();
   const [image, setImage] = useState(null);
-  const [videoAsset, setVideoAsset] = useState(null); // { uri, duration (ms) }
-  const [trimParams, setTrimParams] = useState(null);  // { startSec, endSec, numClips }
-  const [step, setStep] = useState('pick'); // 'pick' | 'trim' | 'caption'
+  const [trimmedVideo, setTrimmedVideo] = useState(null); // { uri, durationMs }
   const [duration, setDuration] = useState(24);
   const [caption, setCaption] = useState('');
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState('');
+  const trimSubs = useRef([]);
   const insets = useSafeAreaInsets();
+
+  const cleanupTrimSubs = () => {
+    trimSubs.current.forEach((s) => s?.remove());
+    trimSubs.current = [];
+  };
+
+  const openTrimEditor = (asset) => {
+    cleanupTrimSubs();
+    trimSubs.current = [
+      VideoTrim.onFinishTrimming(({ outputPath, duration: dur }) => {
+        cleanupTrimSubs();
+        setTrimmedVideo({ uri: outputPath, durationMs: dur });
+        setImage(null);
+      }),
+      VideoTrim.onCancel(() => cleanupTrimSubs()),
+      VideoTrim.onError(({ message }) => {
+        cleanupTrimSubs();
+        Alert.alert('Could not trim video', message);
+      }),
+    ];
+    showEditor(asset.uri, {
+      maxDuration: STORY_MAX_DURATION_MS,
+      enableSaveDialog: false,
+      enableCancelDialog: false,
+      headerText: 'Trim Daily',
+      saveButtonText: 'Use Clip',
+      cancelButtonText: 'Back',
+    });
+  };
 
   const pickImage = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') return Alert.alert('Permission needed');
     const r = await ImagePicker.launchImageLibraryAsync(PICK_OPTS);
-    if (!r.canceled) { setImage(r.assets[0].uri); setVideoAsset(null); setStep('caption'); }
+    if (!r.canceled) { setImage(r.assets[0].uri); setTrimmedVideo(null); }
   };
 
   const takePhoto = async () => {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status !== 'granted') return Alert.alert('Permission needed');
     const r = await ImagePicker.launchCameraAsync(PICK_OPTS);
-    if (!r.canceled) { setImage(r.assets[0].uri); setVideoAsset(null); setStep('caption'); }
+    if (!r.canceled) { setImage(r.assets[0].uri); setTrimmedVideo(null); }
   };
 
   const pickVideo = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') return Alert.alert('Permission needed');
-    const r = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['videos'],
-      quality: 0.9,
-      videoMaxDuration: STORY_MAX_CLIPS * STORY_MAX_CLIP_SEC,
-    });
-    if (!r.canceled) {
-      const a = r.assets[0];
-      setVideoAsset({ uri: a.uri, duration: a.duration || 0 });
-      setImage(null);
-      setStep('trim');
-    }
+    const r = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['videos'], quality: 0.9 });
+    if (!r.canceled) openTrimEditor(r.assets[0]);
   };
 
   const handlePost = async () => {
     setUploading(true);
-    let encryptedClips = null;
+    let encVideoUri = null, encThumbUri = null;
     try {
-      if (videoAsset && trimParams) {
+      if (trimmedVideo) {
         const encBinFn = getEncryptImgBinFn();
         if (!encBinFn) throw new Error('Vault not unlocked');
 
-        setProgress('Processing clips…');
-        encryptedClips = await processVideoClips(
-          videoAsset.uri,
-          trimParams.startSec, trimParams.endSec, trimParams.numClips,
-          encBinFn,
-          (pct) => setProgress(`Processing ${Math.round(pct * 100)}%…`),
-        );
+        setProgress('Extracting thumbnail…');
+        let thumbPath = null;
+        try {
+          const frame = await getFrameAt(trimmedVideo.uri, { time: 0, format: 'jpeg', quality: 80 });
+          thumbPath = frame.outputPath;
+        } catch {}
+
+        setProgress('Encrypting…');
+        encVideoUri = await encryptLocalVideo(trimmedVideo.uri, encBinFn);
+        if (thumbPath) encThumbUri = await encryptLocalVideo(thumbPath, encBinFn);
 
         setProgress('Uploading…');
-        await uploadStory(null, duration, caption.trim(), encryptedClips);
-        cleanupEncryptedClips(encryptedClips).catch(() => {});
+        const durationSecs = trimmedVideo.durationMs ? Math.round(trimmedVideo.durationMs / 1000) : null;
+        await uploadStory(null, duration, caption.trim(), [{
+          encVideoUri, encThumbUri, durationSecs,
+        }]);
+
+        deleteTrimFile(trimmedVideo.uri).catch(() => {});
       } else if (image) {
         setProgress('Uploading…');
         await uploadStory(image, duration, caption.trim());
@@ -95,36 +118,19 @@ export default function StoryCreateScreen({ navigation }) {
       }
       navigation.goBack();
     } catch (e) {
-      if (encryptedClips) cleanupEncryptedClips(encryptedClips).catch(() => {});
       Alert.alert('Failed', e.message || 'Could not post daily.');
     } finally {
+      cleanupTempFiles([encVideoUri, encThumbUri]).catch(() => {});
       setUploading(false);
       setProgress('');
     }
   };
 
-  // ── Trim step (video only) ────────────────────────────────────────────────
-  if (step === 'trim' && videoAsset) {
-    return (
-      <VideoTrimmer
-        videoUri={videoAsset.uri}
-        durationSec={(videoAsset.duration || 0) / 1000}
-        maxClipSec={STORY_MAX_CLIP_SEC}
-        maxClips={STORY_MAX_CLIPS}
-        onBack={() => setStep('pick')}
-        onConfirm={(params) => { setTrimParams(params); setStep('caption'); }}
-      />
-    );
-  }
+  const hasMedia = !!(image || trimmedVideo);
 
-  // ── Caption / pick step ───────────────────────────────────────────────────
   return (
     <KeyboardAvoidingView style={{ flex: 1, backgroundColor: colors.bg }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-      <ScrollView
-        style={{ flex: 1 }}
-        contentContainerStyle={{ flexGrow: 1 }}
-        keyboardShouldPersistTaps="handled"
-      >
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ flexGrow: 1 }} keyboardShouldPersistTaps="handled">
         <View style={[styles.header, { paddingTop: insets.top + 12, borderBottomColor: colors.border }]}>
           <TouchableOpacity onPress={() => navigation.goBack()}>
             <Text style={[styles.cancelText, { color: colors.textSub }]}>Cancel</Text>
@@ -148,19 +154,15 @@ export default function StoryCreateScreen({ navigation }) {
               </TouchableOpacity>
             </View>
           </View>
-        ) : videoAsset && trimParams ? (
+        ) : trimmedVideo ? (
           <View style={styles.previewWrap}>
             <Video
-              source={{ uri: videoAsset.uri }}
+              source={{ uri: trimmedVideo.uri }}
               style={styles.preview}
               resizeMode={ResizeMode.COVER}
               shouldPlay isMuted isLooping
             />
             <View style={styles.previewActions}>
-              <TouchableOpacity style={styles.previewBtn} onPress={() => setStep('trim')}>
-                <Feather name="scissors" size={14} color="#fff" />
-                <Text style={styles.previewBtnText}>Re-trim</Text>
-              </TouchableOpacity>
               <TouchableOpacity style={styles.previewBtn} onPress={pickVideo}>
                 <Feather name="video" size={14} color="#fff" />
                 <Text style={styles.previewBtnText}>Change</Text>
@@ -168,7 +170,7 @@ export default function StoryCreateScreen({ navigation }) {
             </View>
             <View style={styles.clipBadge}>
               <Text style={styles.clipBadgeText}>
-                {trimParams.numClips} clip{trimParams.numClips > 1 ? 's' : ''} · {Math.round((trimParams.endSec - trimParams.startSec) / trimParams.numClips)}s each
+                {Math.round((trimmedVideo.durationMs || 0) / 1000)}s clip
               </Text>
             </View>
           </View>
@@ -212,18 +214,10 @@ export default function StoryCreateScreen({ navigation }) {
             {DURATIONS.map((d) => (
               <TouchableOpacity
                 key={d.value}
-                style={[
-                  styles.chip,
-                  { borderColor: colors.border },
-                  duration === d.value && { backgroundColor: colors.accent, borderColor: colors.accent },
-                ]}
+                style={[styles.chip, { borderColor: colors.border }, duration === d.value && { backgroundColor: colors.accent, borderColor: colors.accent }]}
                 onPress={() => setDuration(d.value)}
               >
-                <Text style={[
-                  styles.chipText,
-                  { color: colors.textSub },
-                  duration === d.value && { color: colors.accentText, fontWeight: '600' },
-                ]}>
+                <Text style={[styles.chipText, { color: colors.textSub }, duration === d.value && { color: colors.accentText, fontWeight: '600' }]}>
                   {d.label}
                 </Text>
               </TouchableOpacity>
@@ -233,9 +227,9 @@ export default function StoryCreateScreen({ navigation }) {
 
         <View style={[styles.footer, { borderTopColor: colors.border, paddingBottom: insets.bottom + 16 }]}>
           <TouchableOpacity
-            style={[styles.postBtn, { backgroundColor: colors.accent }, ((!image && !trimParams) || uploading) && styles.postBtnDisabled]}
+            style={[styles.postBtn, { backgroundColor: colors.accent }, (!hasMedia || uploading) && styles.postBtnDisabled]}
             onPress={handlePost}
-            disabled={(!image && !trimParams) || uploading}
+            disabled={!hasMedia || uploading}
           >
             {uploading
               ? <><ActivityIndicator color={colors.accentText} /><Text style={[styles.postBtnText, { color: colors.accentText, marginLeft: 8 }]}>{progress}</Text></>
