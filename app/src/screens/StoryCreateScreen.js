@@ -42,9 +42,9 @@ export default function StoryCreateScreen({ navigation }) {
   const openTrimEditor = (asset) => {
     cleanupTrimSubs();
     trimSubs.current = [
-      VideoTrim.onFinishTrimming(({ outputPath, duration: dur }) => {
+      VideoTrim.onFinishTrimming(({ outputPath, startTime, endTime }) => {
         cleanupTrimSubs();
-        setTrimmedVideo({ uri: outputPath, durationMs: dur });
+        setTrimmedVideo({ uri: outputPath, durationMs: endTime - startTime });
         setImage(null);
       }),
       VideoTrim.onCancel(() => cleanupTrimSubs()),

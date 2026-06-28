@@ -507,9 +507,9 @@ export default function PostScreen({ navigation }) {
   const openTrimEditor = (asset) => {
     cleanupTrimSubs();
     trimSubs.current = [
-      VideoTrim.onFinishTrimming(({ outputPath, duration }) => {
+      VideoTrim.onFinishTrimming(({ outputPath, startTime, endTime }) => {
         cleanupTrimSubs();
-        setTrimmedVideo({ uri: outputPath, durationMs: duration });
+        setTrimmedVideo({ uri: outputPath, durationMs: endTime - startTime });
         setStep(2);
       }),
       VideoTrim.onCancel(() => {
