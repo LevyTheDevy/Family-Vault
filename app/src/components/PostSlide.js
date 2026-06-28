@@ -6,6 +6,7 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import CachedImage from './CachedImage';
+import CachedVideo from './CachedVideo';
 import { Video, ResizeMode } from 'expo-av';
 import { Feather, Ionicons } from '@expo/vector-icons';
 import {
@@ -39,6 +40,7 @@ function PostSlide({
   const [showCollections, setShowCollections] = useState(false);
   const [collections, setCollections] = useState([]);
   const [imageIndex, setImageIndex] = useState(0);
+  const [clipIndex, setClipIndex] = useState(0);
   const [pinState, setPinState] = useState(null);
   const [pinText, setPinText] = useState('');
   const [pinKeyboardH, setPinKeyboardH] = useState(0);
@@ -102,7 +104,9 @@ function PostSlide({
     } finally { setPinSending(false); }
   };
 
-  const isVideoPost = post.mediaType === 'video' || !!post.videoUrl;
+  const videoClips = post.videoClips || [];
+  const isVideoPost = post.mediaType === 'video' || !!post.videoUrl || videoClips.length > 0;
+  const isMultiClip = videoClips.length > 0;
   const fullUrls = post.imageUrls || (post.imageUrl ? [post.imageUrl] : []);
   const feedUrls = post.feedImageUrls?.length ? post.feedImageUrls : fullUrls;
   const isLiked = post.likes?.includes(me);
@@ -251,34 +255,90 @@ function PostSlide({
     <View style={[styles.container, { height: slideHeight }]}>
 
       {isVideoPost ? (
-        <TouchableOpacity activeOpacity={1} onPress={() => setIsPlaying((p) => !p)} style={StyleSheet.absoluteFillObject}>
-          <Video
-            ref={videoRef}
-            source={{ uri: post.videoUrl }}
-            style={StyleSheet.absoluteFillObject}
-            resizeMode={ResizeMode.COVER}
-            shouldPlay={isPlaying}
-            isLooping
-            isMuted={isMuted}
-            posterSource={post.thumbnailUrl ? { uri: post.thumbnailUrl } : undefined}
-            usePoster={!!post.thumbnailUrl}
-          />
-          {!isPlaying && (
-            <View style={styles.playOverlay} pointerEvents="none">
-              <View style={styles.playBtn}><Feather name="play" size={36} color="#fff" /></View>
-            </View>
-          )}
-          {post.durationSecs != null && (
-            <View style={styles.durBadge} pointerEvents="none">
-              <Text style={styles.durText}>
-                {Math.floor(post.durationSecs / 60)}:{String(Math.floor(post.durationSecs % 60)).padStart(2, '0')}
-              </Text>
-            </View>
-          )}
-          <TouchableOpacity style={styles.muteBtn} onPress={(e) => { e.stopPropagation?.(); setIsMuted((m) => !m); }} hitSlop={{ top: 10, right: 10, bottom: 10, left: 10 }}>
-            <Feather name={isMuted ? 'volume-x' : 'volume-2'} size={16} color="#fff" />
+        isMultiClip ? (
+          // Multi-clip encrypted video carousel
+          <TouchableOpacity activeOpacity={1} onPress={() => setIsPlaying((p) => !p)} style={StyleSheet.absoluteFillObject}>
+            <ScrollView
+              horizontal pagingEnabled showsHorizontalScrollIndicator={false}
+              style={StyleSheet.absoluteFillObject}
+              scrollEventThrottle={16}
+              onMomentumScrollEnd={(e) => {
+                const idx = Math.round(e.nativeEvent.contentOffset.x / width);
+                setClipIndex(idx);
+              }}
+            >
+              {videoClips.map((clip, idx) => (
+                <CachedVideo
+                  key={idx}
+                  uri={clip.url}
+                  posterUri={clip.thumbUrl || undefined}
+                  style={{ width, height: slideHeight, backgroundColor: '#000' }}
+                  resizeMode={ResizeMode.COVER}
+                  shouldPlay={isActive && isPlaying && clipIndex === idx}
+                  isLooping={videoClips.length === 1}
+                  isMuted={isMuted}
+                  onPlaybackStatusUpdate={(status) => {
+                    if (status.didJustFinish && videoClips.length > 1 && idx < videoClips.length - 1) {
+                      setClipIndex(idx + 1);
+                    }
+                  }}
+                />
+              ))}
+            </ScrollView>
+            {!isPlaying && (
+              <View style={styles.playOverlay} pointerEvents="none">
+                <View style={styles.playBtn}><Feather name="play" size={36} color="#fff" /></View>
+              </View>
+            )}
+            {videoClips.length > 1 && (
+              <View style={styles.dots} pointerEvents="none">
+                {videoClips.map((_, i) => (
+                  <View key={i} style={[styles.dot, i === clipIndex && styles.dotActive]} />
+                ))}
+              </View>
+            )}
+            {videoClips[clipIndex]?.durationSecs != null && (
+              <View style={styles.durBadge} pointerEvents="none">
+                <Text style={styles.durText}>
+                  {clipIndex + 1}/{videoClips.length} · {Math.floor(videoClips[clipIndex].durationSecs)}s
+                </Text>
+              </View>
+            )}
+            <TouchableOpacity style={styles.muteBtn} onPress={(e) => { e.stopPropagation?.(); setIsMuted((m) => !m); }} hitSlop={{ top: 10, right: 10, bottom: 10, left: 10 }}>
+              <Feather name={isMuted ? 'volume-x' : 'volume-2'} size={16} color="#fff" />
+            </TouchableOpacity>
           </TouchableOpacity>
-        </TouchableOpacity>
+        ) : (
+          // Legacy single video
+          <TouchableOpacity activeOpacity={1} onPress={() => setIsPlaying((p) => !p)} style={StyleSheet.absoluteFillObject}>
+            <Video
+              ref={videoRef}
+              source={{ uri: post.videoUrl }}
+              style={StyleSheet.absoluteFillObject}
+              resizeMode={ResizeMode.COVER}
+              shouldPlay={isActive && isPlaying}
+              isLooping
+              isMuted={isMuted}
+              posterSource={post.thumbnailUrl ? { uri: post.thumbnailUrl } : undefined}
+              usePoster={!!post.thumbnailUrl}
+            />
+            {!isPlaying && (
+              <View style={styles.playOverlay} pointerEvents="none">
+                <View style={styles.playBtn}><Feather name="play" size={36} color="#fff" /></View>
+              </View>
+            )}
+            {post.durationSecs != null && (
+              <View style={styles.durBadge} pointerEvents="none">
+                <Text style={styles.durText}>
+                  {Math.floor(post.durationSecs / 60)}:{String(Math.floor(post.durationSecs % 60)).padStart(2, '0')}
+                </Text>
+              </View>
+            )}
+            <TouchableOpacity style={styles.muteBtn} onPress={(e) => { e.stopPropagation?.(); setIsMuted((m) => !m); }} hitSlop={{ top: 10, right: 10, bottom: 10, left: 10 }}>
+              <Feather name={isMuted ? 'volume-x' : 'volume-2'} size={16} color="#fff" />
+            </TouchableOpacity>
+          </TouchableOpacity>
+        )
       ) : (
         <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false} scrollEnabled={feedUrls.length > 1}
           style={StyleSheet.absoluteFillObject}
@@ -304,7 +364,7 @@ function PostSlide({
         </Animated.View>
       )}
 
-      {feedUrls.length > 1 && (
+      {!isVideoPost && feedUrls.length > 1 && (
         <View style={styles.dots}>
           {feedUrls.map((_, i) => (
             <View key={i} style={[styles.dot, i === imageIndex && styles.dotActive]} />

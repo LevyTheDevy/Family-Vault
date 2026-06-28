@@ -6,11 +6,12 @@ import {
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
-import * as VideoThumbnails from 'expo-video-thumbnails';
 import { Video, ResizeMode } from 'expo-av';
 import { Feather } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { uploadPhotos, uploadVideo, fetchCollections } from '../utils/api';
+import { uploadPhotos, uploadVideoPost, fetchCollections, getEncryptImgBinFn } from '../utils/api';
+import { processVideoClips, cleanupEncryptedClips } from '../utils/videoProcessing';
+import VideoTrimmer from '../components/VideoTrimmer';
 import { useTheme } from '../context/ThemeContext';
 import { useToast } from '../context/ToastContext';
 
@@ -346,7 +347,7 @@ function EditStep({ assets, onNext, onBack, insets }) {
 }
 
 // ─── Step 2: Caption + collection + post ─────────────────────────────────────
-function CaptionStep({ assets, editedAssets, filterIdx, onBack, onDone, insets }) {
+function CaptionStep({ assets, editedAssets, filterIdx, videoTrimParams, onBack, onDone, insets }) {
   const { colors } = useTheme();
   const [finalAssets] = useState(editedAssets || assets);
   const [caption, setCaption] = useState('');
@@ -363,23 +364,26 @@ function CaptionStep({ assets, editedAssets, filterIdx, onBack, onDone, insets }
   const handlePost = async () => {
     setUploading(true);
     setUploadPct(0);
+    let encryptedClips = null;
     try {
-      if (isVideo) {
-        setProgress('Generating thumbnail…');
-        let thumbUri = null;
-        try {
-          const { uri } = await VideoThumbnails.getThumbnailAsync(assets[0].uri, { time: 1000 });
-          thumbUri = uri;
-        } catch {}
-        setProgress('Uploading video…');
-        await uploadVideo(
-          assets[0].uri,
-          thumbUri,
-          caption.trim(),
-          assets[0].duration ? Math.round(assets[0].duration) : null,
-          selectedCollection,
-          (pct) => setUploadPct(Math.round(pct * 100)),
+      if (isVideo && videoTrimParams) {
+        const { startSec, endSec, numClips } = videoTrimParams;
+        const encryptImgBinFn = getEncryptImgBinFn();
+        if (!encryptImgBinFn) throw new Error('Vault not unlocked — please log in again');
+
+        setProgress('Trimming…');
+        encryptedClips = await processVideoClips(
+          assets[0].uri, startSec, endSec, numClips,
+          encryptImgBinFn,
+          (pct) => { setUploadPct(Math.round(pct * 60)); setProgress(`Processing clip ${Math.ceil(pct * numClips)}/${numClips}…`); },
         );
+
+        setProgress('Uploading…');
+        await uploadVideoPost(
+          encryptedClips, caption.trim(), selectedCollection,
+          (pct) => setUploadPct(60 + Math.round(pct * 40)),
+        );
+        cleanupEncryptedClips(encryptedClips).catch(() => {});
       } else {
         setProgress('Uploading…');
         const uris = finalAssets.map((a) => a.uri);
@@ -389,6 +393,7 @@ function CaptionStep({ assets, editedAssets, filterIdx, onBack, onDone, insets }
       toast?.success('Posted to vault!');
       onDone();
     } catch (e) {
+      if (encryptedClips) cleanupEncryptedClips(encryptedClips).catch(() => {});
       Alert.alert('Upload failed', e.message || 'Could not reach the vault.');
     } finally {
       setUploading(false);
@@ -477,9 +482,12 @@ export default function PostScreen({ navigation }) {
   const [step, setStep] = useState(0);
   const [pickedAssets, setPickedAssets] = useState([]);
   const [editResult, setEditResult] = useState(null);
+  const [trimParams, setTrimParams] = useState(null); // { startSec, endSec, numClips }
   const insets = useSafeAreaInsets();
 
-  const titles = ['New Post', 'Edit', 'Caption'];
+  const isVideoFlow = pickedAssets[0]?.mediaType === 'video';
+  // Steps: 0=Pick, 1=Edit(photo)/Trim(video), 2=Caption
+  const titles = ['New Post', isVideoFlow ? 'Trim' : 'Edit', 'Caption'];
 
   useEffect(() => {
     navigation.setOptions({
@@ -493,7 +501,7 @@ export default function PostScreen({ navigation }) {
         </TouchableOpacity>
       ),
     });
-  }, [step, colors]);
+  }, [step, colors, isVideoFlow]);
 
   return (
     <View style={[s.root, { backgroundColor: colors.bg }]}>
@@ -504,7 +512,17 @@ export default function PostScreen({ navigation }) {
           onNext={(assets) => { setPickedAssets(assets); setStep(1); }}
         />
       )}
-      {step === 1 && (
+      {step === 1 && isVideoFlow && (
+        <VideoTrimmer
+          videoUri={pickedAssets[0].uri}
+          durationSec={(pickedAssets[0].duration || 0) / 1000}
+          maxClipSec={30}
+          maxClips={5}
+          onBack={() => setStep(0)}
+          onConfirm={(params) => { setTrimParams(params); setStep(2); }}
+        />
+      )}
+      {step === 1 && !isVideoFlow && (
         <EditStep
           assets={pickedAssets}
           insets={insets}
@@ -517,6 +535,7 @@ export default function PostScreen({ navigation }) {
           assets={pickedAssets}
           editedAssets={editResult?.editedAssets}
           filterIdx={editResult?.filterIdx ?? 0}
+          videoTrimParams={trimParams}
           insets={insets}
           onBack={() => setStep(1)}
           onDone={() => navigation.goBack()}

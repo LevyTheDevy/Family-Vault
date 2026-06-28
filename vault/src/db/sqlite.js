@@ -119,6 +119,22 @@ sql.exec(`
     expires_at     TEXT NOT NULL,
     created_at     TEXT NOT NULL DEFAULT (datetime('now'))
   );
+  CREATE TABLE IF NOT EXISTS story_clips (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    story_id      INTEGER NOT NULL REFERENCES stories(id) ON DELETE CASCADE,
+    filename      TEXT NOT NULL,
+    thumb_filename TEXT,
+    position      INTEGER NOT NULL DEFAULT 0,
+    duration_secs REAL
+  );
+  CREATE TABLE IF NOT EXISTS post_videos (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    post_id       INTEGER NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+    filename      TEXT NOT NULL,
+    thumb_filename TEXT,
+    position      INTEGER NOT NULL DEFAULT 0,
+    duration_secs REAL
+  );
   CREATE TABLE IF NOT EXISTS story_views (
     story_id  INTEGER NOT NULL REFERENCES stories(id) ON DELETE CASCADE,
     viewer    TEXT NOT NULL COLLATE NOCASE,
@@ -306,10 +322,12 @@ for (const colDef of ['feed_filename TEXT', 'thumb_filename TEXT']) {
 // ─── Row normalizers ─────────────────────────────────────────────────────────
 function postExtras(postId) {
   const imageRows = sql.prepare('SELECT filename, feed_filename, thumb_filename FROM post_images WHERE post_id = ? ORDER BY position').all(postId);
+  const videoClipRows = sql.prepare('SELECT filename, thumb_filename, duration_secs FROM post_videos WHERE post_id = ? ORDER BY position').all(postId);
   return {
     filenames:     imageRows.map(r => r.filename),
     feedFilenames: imageRows.map(r => r.feed_filename || null),
     thumbFilenames: imageRows.map(r => r.thumb_filename || null),
+    videoClips:    videoClipRows.map(r => ({ filename: r.filename, thumbFilename: r.thumb_filename, durationSecs: r.duration_secs })),
     likes:     sql.prepare('SELECT member_name FROM post_likes WHERE post_id = ?').all(postId).map(r => r.member_name),
     savedBy:   sql.prepare('SELECT member_name FROM post_saves WHERE post_id = ?').all(postId).map(r => r.member_name),
     comments:  sql.prepare('SELECT * FROM comments WHERE post_id = ? ORDER BY id').all(postId).map(normalizeComment),
@@ -333,9 +351,11 @@ function normalizeComment(row) {
 
 function normalizeStory(row) {
   if (!row) return null;
+  const clipRows = sql.prepare('SELECT filename, thumb_filename, duration_secs FROM story_clips WHERE story_id = ? ORDER BY position').all(row.id);
   return {
     id: row.id, filename: row.filename, author: row.author, caption: row.caption,
     durationHours: row.duration_hours, expiresAt: row.expires_at, createdAt: row.created_at,
+    clips:     clipRows.map(r => ({ filename: r.filename, thumbFilename: r.thumb_filename, durationSecs: r.duration_secs })),
     views:     sql.prepare('SELECT viewer, viewed_at FROM story_views WHERE story_id = ?').all(row.id).map(v => ({ viewer: v.viewer, viewedAt: v.viewed_at })),
     reactions: sql.prepare('SELECT author, emoji, created_at FROM story_reactions WHERE story_id = ?').all(row.id).map(r => ({ author: r.author, emoji: r.emoji, createdAt: r.created_at })),
     likes:     sql.prepare('SELECT member_name FROM story_likes WHERE story_id = ?').all(row.id).map(r => r.member_name),
@@ -516,11 +536,25 @@ const db = {
     sql.transaction(() => {
       // Collect files before deleting
       for (const p of sql.prepare('SELECT id, video_filename, thumbnail_filename FROM posts WHERE author = ?').all(memberName)) {
-        sql.prepare('SELECT filename FROM post_images WHERE post_id = ?').all(p.id).forEach(r => storageFiles.push(r.filename));
+        sql.prepare('SELECT filename, feed_filename, thumb_filename FROM post_images WHERE post_id = ?').all(p.id).forEach(r => {
+          storageFiles.push(r.filename);
+          if (r.feed_filename) storageFiles.push(r.feed_filename);
+          if (r.thumb_filename) storageFiles.push(r.thumb_filename);
+        });
+        sql.prepare('SELECT filename, thumb_filename FROM post_videos WHERE post_id = ?').all(p.id).forEach(r => {
+          storageFiles.push(r.filename);
+          if (r.thumb_filename) storageFiles.push(r.thumb_filename);
+        });
         if (p.video_filename) storageFiles.push(p.video_filename);
         if (p.thumbnail_filename) storageFiles.push(p.thumbnail_filename);
       }
-      sql.prepare('SELECT filename FROM stories WHERE author = ?').all(memberName).forEach(r => storageFiles.push(r.filename));
+      for (const s of sql.prepare('SELECT id, filename FROM stories WHERE author = ?').all(memberName)) {
+        storageFiles.push(s.filename);
+        sql.prepare('SELECT filename, thumb_filename FROM story_clips WHERE story_id = ?').all(s.id).forEach(r => {
+          storageFiles.push(r.filename);
+          if (r.thumb_filename) storageFiles.push(r.thumb_filename);
+        });
+      }
 
       // Delete owned content (cascades handle child rows)
       sql.prepare('DELETE FROM posts WHERE author = ?').run(memberName);
@@ -650,13 +684,15 @@ const db = {
     return normalizePost(sql.prepare('SELECT * FROM posts WHERE id = ?').get(id));
   },
 
-  insertPost(filenames, author, caption, mediaType = 'image', videoFilename = null, thumbnailFilename = null, durationSecs = null, feedFilenames = [], thumbFilenames = []) {
+  insertPost(filenames, author, caption, mediaType = 'image', videoFilename = null, thumbnailFilename = null, durationSecs = null, feedFilenames = [], thumbFilenames = [], videoClips = []) {
     const arr = Array.isArray(filenames) ? filenames : [filenames];
     const res = sql.prepare('INSERT INTO posts (author, caption, media_type, video_filename, thumbnail_filename, duration_secs) VALUES (?,?,?,?,?,?)').run(
       author, caption || '', mediaType, videoFilename || null, thumbnailFilename || null, durationSecs ?? null);
     const postId = res.lastInsertRowid;
     arr.forEach((f, i) => sql.prepare('INSERT INTO post_images (post_id, filename, position, feed_filename, thumb_filename) VALUES (?,?,?,?,?)').run(
       postId, f, i, feedFilenames[i] || null, thumbFilenames[i] || null));
+    videoClips.forEach((c, i) => sql.prepare('INSERT INTO post_videos (post_id, filename, thumb_filename, position, duration_secs) VALUES (?,?,?,?,?)').run(
+      postId, c.filename, c.thumbFilename || null, i, c.durationSecs ?? null));
     return normalizePost(sql.prepare('SELECT * FROM posts WHERE id = ?').get(postId));
   },
 
@@ -665,7 +701,9 @@ const db = {
     if (!p) throw new Error('Post not found');
     if (p.author !== requestingMember) throw new Error('Not your post');
     const imageRows = sql.prepare('SELECT filename, feed_filename, thumb_filename FROM post_images WHERE post_id = ?').all(id);
+    const clipRows = sql.prepare('SELECT filename, thumb_filename FROM post_videos WHERE post_id = ?').all(id);
     const files = imageRows.flatMap(r => [r.filename, r.feed_filename, r.thumb_filename].filter(Boolean));
+    clipRows.forEach(r => { files.push(r.filename); if (r.thumb_filename) files.push(r.thumb_filename); });
     if (p.video_filename) files.push(p.video_filename);
     if (p.thumbnail_filename) files.push(p.thumbnail_filename);
     sql.prepare('DELETE FROM posts WHERE id = ?').run(id);
@@ -703,11 +741,14 @@ const db = {
   },
 
   // ── Stories ────────────────────────────────────────────────────────────────
-  insertStory(filename, author, durationHours, caption = '') {
+  insertStory(filename, author, durationHours, caption = '', clips = []) {
     const expiresAt = new Date(Date.now() + durationHours * 3_600_000).toISOString();
     const res = sql.prepare('INSERT INTO stories (filename, author, caption, duration_hours, expires_at) VALUES (?,?,?,?,?)').run(
       filename, author, caption || '', durationHours, expiresAt);
-    return normalizeStory(sql.prepare('SELECT * FROM stories WHERE id = ?').get(res.lastInsertRowid));
+    const storyId = res.lastInsertRowid;
+    clips.forEach((c, i) => sql.prepare('INSERT INTO story_clips (story_id, filename, thumb_filename, position, duration_secs) VALUES (?,?,?,?,?)').run(
+      storyId, c.filename, c.thumbFilename || null, i, c.durationSecs ?? null));
+    return normalizeStory(sql.prepare('SELECT * FROM stories WHERE id = ?').get(storyId));
   },
 
   getActiveStories() {
@@ -718,14 +759,23 @@ const db = {
     const s = sql.prepare('SELECT * FROM stories WHERE id = ?').get(id);
     if (!s) throw new Error('Story not found');
     if (s.author !== requestingMember) throw new Error('Not your story');
+    const clipRows = sql.prepare('SELECT filename, thumb_filename FROM story_clips WHERE story_id = ?').all(id);
+    const files = [s.filename];
+    clipRows.forEach(r => { files.push(r.filename); if (r.thumb_filename) files.push(r.thumb_filename); });
     sql.prepare('DELETE FROM stories WHERE id = ?').run(id);
-    return s.filename;
+    return files;
   },
 
   purgeExpiredStories() {
-    const expired = sql.prepare("SELECT filename FROM stories WHERE expires_at <= datetime('now')").all().map(r => r.filename);
-    if (expired.length) sql.prepare("DELETE FROM stories WHERE expires_at <= datetime('now')").run();
-    return expired;
+    const expiredRows = sql.prepare("SELECT id, filename FROM stories WHERE expires_at <= datetime('now')").all();
+    if (!expiredRows.length) return [];
+    const files = expiredRows.map(r => r.filename);
+    for (const s of expiredRows) {
+      sql.prepare('SELECT filename, thumb_filename FROM story_clips WHERE story_id = ?').all(s.id)
+        .forEach(r => { files.push(r.filename); if (r.thumb_filename) files.push(r.thumb_filename); });
+    }
+    sql.prepare("DELETE FROM stories WHERE expires_at <= datetime('now')").run();
+    return files;
   },
 
   recordStoryView(storyId, memberName) {

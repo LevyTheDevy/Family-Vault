@@ -34,6 +34,8 @@ const uploadFields = upload.fields([
   { name: 'thumbPhotos', maxCount: 10 },
   { name: 'video', maxCount: 1 },
   { name: 'thumbnail', maxCount: 1 },
+  { name: 'videoClips', maxCount: 5 },
+  { name: 'thumbClips', maxCount: 5 },
 ]);
 
 function auth(req, res, next) {
@@ -48,17 +50,25 @@ function withBase(req, post) {
   const feedFn = post.feedFilenames || [];
   const thumbFn = post.thumbFilenames || [];
   const imageUrls = filenames.map((f) => `${base}/storage/${f}`);
-  // Fall back to full-res URL for old posts that have no variant
   const feedImageUrls = filenames.map((f, i) => `${base}/storage/${feedFn[i] || f}`);
   const thumbImageUrls = filenames.map((f, i) => `${base}/storage/${thumbFn[i] || f}`);
-  const videoUrl = post.videoFilename ? `${base}/storage/${post.videoFilename}` : null;
-  const thumbnailUrl = post.thumbnailFilename ? `${base}/storage/${post.thumbnailFilename}` : null;
+  const videoClips = (post.videoClips || []).map((c) => ({
+    ...c,
+    url: `${base}/storage/${c.filename}`,
+    thumbUrl: c.thumbFilename ? `${base}/storage/${c.thumbFilename}` : null,
+  }));
+  const videoUrl = post.videoFilename
+    ? `${base}/storage/${post.videoFilename}`
+    : (videoClips[0]?.url || null);
+  const thumbnailUrl = post.thumbnailFilename
+    ? `${base}/storage/${post.thumbnailFilename}`
+    : (videoClips[0]?.thumbUrl || null);
   return {
     ...post,
     imageUrls, imageUrl: imageUrls[0] || null,
     feedImageUrls, feedImageUrl: feedImageUrls[0] || null,
     thumbImageUrls, thumbImageUrl: thumbImageUrls[0] || null,
-    videoUrl, thumbnailUrl,
+    videoUrl, thumbnailUrl, videoClips,
   };
 }
 
@@ -83,30 +93,33 @@ router.post('/posts', auth, (req, res, next) => {
   const thumbPhotos = req.files?.thumbPhotos || [];
   const videos = req.files?.video || [];
   const thumbnails = req.files?.thumbnail || [];
+  const videoClipFiles = req.files?.videoClips || [];
+  const thumbClipFiles = req.files?.thumbClips || [];
 
-  console.log('[posts] POST /posts — photos:', photos.map(f => `${f.originalname}(${f.mimetype},${f.size}b)`).join(', '), 'videos:', videos.length);
+  console.log('[posts] POST /posts — photos:', photos.length, 'videos:', videos.length, 'clips:', videoClipFiles.length);
 
-  if (!photos.length && !videos.length) {
+  if (!photos.length && !videos.length && !videoClipFiles.length) {
     return res.status(400).json({ error: 'No media provided' });
   }
 
   const caption = req.body.caption || '';
 
-  if (videos.length) {
-    // Video post
+  if (videoClipFiles.length > 0) {
+    // Multi-clip encrypted video post
+    const videoClips = videoClipFiles.map((f, i) => ({
+      filename: f.filename,
+      thumbFilename: thumbClipFiles[i]?.filename || null,
+      durationSecs: req.body[`clipDuration${i}`] ? Number(req.body[`clipDuration${i}`]) : null,
+    }));
+    const post = db.insertPost([], req.member.name, caption, 'video', null, null, null, [], [], videoClips);
+    return res.json(withBase(req, post));
+  } else if (videos.length) {
+    // Single legacy video post
     const videoFile = videos[0];
     const thumbFile = thumbnails[0] || null;
     const durationSecs = req.body.durationSecs ? Number(req.body.durationSecs) : null;
-    const post = db.insertPost(
-      [], // no image filenames for video posts
-      req.member.name,
-      caption,
-      'video',
-      videoFile.filename,
-      thumbFile ? thumbFile.filename : null,
-      durationSecs,
-    );
-    res.json(withBase(req, post));
+    const post = db.insertPost([], req.member.name, caption, 'video', videoFile.filename, thumbFile ? thumbFile.filename : null, durationSecs);
+    return res.json(withBase(req, post));
   } else {
     // Photo post
     const filenames = photos.map((f) => f.filename);

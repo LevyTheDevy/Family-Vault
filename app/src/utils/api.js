@@ -22,6 +22,7 @@ export const getStoredAuthHeader = () => _token ? { Authorization: `Bearer ${_to
 export const getDecryptFn = () => _decryptFn;
 export const getDecryptImgFn = () => _decryptImgFn;       // legacy encb: path
 export const getDecryptImgBinFn = () => _decryptImgBinFn; // new binary path
+export const getEncryptImgBinFn = () => _encryptImgBinFn; // encrypt binary files (images + video)
 
 let _feedDirty = false;
 export const markFeedDirty = () => { _feedDirty = true; };
@@ -137,9 +138,22 @@ const addTokenToPost = (p) => ({
   thumbImageUrl: withToken(p.thumbImageUrl),
   videoUrl:      withToken(p.videoUrl),
   thumbnailUrl:  withToken(p.thumbnailUrl),
+  videoClips:    (p.videoClips || []).map((c) => ({
+    ...c,
+    url:      withToken(c.url),
+    thumbUrl: withToken(c.thumbUrl),
+  })),
 });
 
-const addTokenToStory = (s) => ({ ...s, imageUrl: withToken(s.imageUrl) });
+const addTokenToStory = (s) => ({
+  ...s,
+  imageUrl: withToken(s.imageUrl),
+  clips: (s.clips || []).map((c) => ({
+    ...c,
+    url:      withToken(c.url),
+    thumbUrl: withToken(c.thumbUrl),
+  })),
+});
 
 const addTokenToMessage = (m) => ({
   ...m,
@@ -391,6 +405,26 @@ export async function sendChatMedia(conversationId, uri, mimeType) {
 // Backward-compat alias
 export const uploadPhoto = (uri, caption, colId) => uploadPhotos([uri], caption, colId);
 
+// Multi-clip encrypted video post
+// clips: [{ encVideoUri, encThumbUri, durationSecs }]
+export async function uploadVideoPost(clips, caption = '', collectionId = null, onProgress = null) {
+  const fd = new FormData();
+  for (let i = 0; i < clips.length; i++) {
+    const { encVideoUri, encThumbUri, durationSecs } = clips[i];
+    fd.append('videoClips', { uri: encVideoUri, type: 'application/octet-stream', name: `clip${i}.enc` });
+    if (encThumbUri) fd.append('thumbClips', { uri: encThumbUri, type: 'application/octet-stream', name: `thumb${i}.enc` });
+    if (durationSecs != null) fd.append(`clipDuration${i}`, String(Math.round(durationSecs)));
+  }
+  const encCaption = await encryptMsg(caption);
+  if (encCaption) fd.append('caption', encCaption);
+  if (onProgress) onProgress(0.6);
+  const post = await req(`${_url}/posts`, { method: 'POST', headers: h(), body: fd });
+  markFeedDirty();
+  if (collectionId) await addToCollection(collectionId, post.id).catch(() => {});
+  if (onProgress) onProgress(1);
+  return decryptPost(addTokenToPost(post));
+}
+
 // Stories
 export const fetchStories = async () => {
   const stories = await req(`${_url}/stories`, { headers: h() });
@@ -400,12 +434,23 @@ export const fetchStories = async () => {
 export const deleteStory = (id) =>
   req(`${_url}/stories/${id}`, { method: 'DELETE', headers: h() });
 
-export async function uploadStory(imageUri, durationHours, caption = '') {
+export async function uploadStory(imageUri, durationHours, caption = '', videoClips = null) {
   const fd = new FormData();
-  const { uri: encUri, encrypted } = await encryptImageUri(imageUri);
-  fd.append('photo', encrypted
-    ? { uri: encUri, type: 'image/jpeg', name: 'story.enc' }
-    : { uri: encUri, type: 'image/jpeg', name: 'story.jpg' });
+  if (videoClips && videoClips.length > 0) {
+    // Video story with encrypted clips
+    for (let i = 0; i < videoClips.length; i++) {
+      const { encVideoUri, encThumbUri, durationSecs } = videoClips[i];
+      fd.append('videoClips', { uri: encVideoUri, type: 'application/octet-stream', name: `clip${i}.enc` });
+      if (encThumbUri) fd.append('thumbClips', { uri: encThumbUri, type: 'application/octet-stream', name: `thumb${i}.enc` });
+      if (durationSecs != null) fd.append(`clipDuration${i}`, String(Math.round(durationSecs)));
+    }
+  } else {
+    // Image story
+    const { uri: encUri, encrypted } = await encryptImageUri(imageUri);
+    fd.append('photo', encrypted
+      ? { uri: encUri, type: 'application/octet-stream', name: 'story.enc' }
+      : { uri: encUri, type: 'image/jpeg', name: 'story.jpg' });
+  }
   fd.append('durationHours', String(durationHours));
   const encCaption = await encryptMsg(caption);
   if (encCaption) fd.append('caption', encCaption);

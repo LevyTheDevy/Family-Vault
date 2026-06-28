@@ -6,6 +6,8 @@ import {
 import { Feather } from '@expo/vector-icons';
 import { deleteStory, getMemberName, viewStory, reactToStory, fetchStoryViewers, likeDaily } from '../utils/api';
 import CachedImage from '../components/CachedImage';
+import CachedVideo from '../components/CachedVideo';
+import { ResizeMode } from 'expo-av';
 
 const STORY_DURATION = 5000;
 const REACTION_EMOJIS = ['❤️', '😂', '😮', '😢', '🔥', '👏'];
@@ -22,25 +24,33 @@ export default function StoryViewScreen({ route, navigation }) {
   const [showInfoPanel, setShowInfoPanel] = useState(false);
   const [viewerInfo, setViewerInfo] = useState(null);
   const [paused, setPaused] = useState(false);
+  const [clipIndex, setClipIndex] = useState(0);
   const progress = useRef(new Animated.Value(0)).current;
   const animRef = useRef(null);
   const me = getMemberName();
 
   const story = stories[index];
+  const isVideoStory = (story?.clips?.length ?? 0) > 0;
 
-  // Sync reaction + like state when story changes (user navigates between stories)
+  // Sync reaction + like state when story changes; reset clip index
   useEffect(() => {
     const r = story?.reactions?.find((r) => r.author === me);
     setMyReaction(r?.emoji ?? null);
     setIsLiked(story?.likes?.includes(me) ?? false);
+    setClipIndex(0);
     if (story) viewStory(story.id).catch(() => {});
   }, [story?.id]);
+
+  const getStoryDuration = (s) => {
+    if (!s?.clips?.length) return STORY_DURATION;
+    return s.clips.reduce((sum, c) => sum + (c.durationSecs ?? 5) * 1000, 0);
+  };
 
   const startProgress = () => {
     progress.setValue(0);
     animRef.current = Animated.timing(progress, {
       toValue: 1,
-      duration: STORY_DURATION,
+      duration: getStoryDuration(story),
       useNativeDriver: false,
     });
     animRef.current.start(({ finished }) => {
@@ -126,7 +136,28 @@ export default function StoryViewScreen({ route, navigation }) {
 
   return (
     <View style={styles.container}>
-      <CachedImage uri={story.imageUrl} style={styles.image} resizeMode="cover" />
+      {isVideoStory ? (
+        <CachedVideo
+          uri={story.clips[clipIndex]?.url}
+          posterUri={story.clips[clipIndex]?.thumbUrl || undefined}
+          style={styles.image}
+          resizeMode={ResizeMode.COVER}
+          shouldPlay={!paused && !showInfoPanel}
+          isLooping={false}
+          isMuted={false}
+          onPlaybackStatusUpdate={(status) => {
+            if (!status.didJustFinish) return;
+            const clips = story.clips || [];
+            if (clipIndex < clips.length - 1) {
+              setClipIndex((i) => i + 1);
+            } else {
+              advance();
+            }
+          }}
+        />
+      ) : (
+        <CachedImage uri={story.imageUrl} style={styles.image} resizeMode="cover" />
+      )}
 
       {/* Progress bars */}
       <View style={styles.progressRow}>

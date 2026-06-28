@@ -11,39 +11,81 @@ const router = express.Router();
 const { STORAGE_DIR } = require('../config');
 const storage = multer.diskStorage({
   destination: STORAGE_DIR,
-  filename: (_, file, cb) => cb(null, `story-${Date.now()}-${crypto.randomBytes(8).toString('hex')}${path.extname(file.originalname) || '.jpg'}`),
+  filename: (_, file, cb) => {
+    const ext = path.extname(file.originalname) || (file.mimetype.startsWith('video') ? '.mp4' : '.jpg');
+    cb(null, `story-${Date.now()}-${crypto.randomBytes(8).toString('hex')}${ext}`);
+  },
 });
 const upload = multer({
   storage,
-  limits: { fileSize: 80 * 1024 * 1024 },
+  limits: { fileSize: 300 * 1024 * 1024 },
   fileFilter: (_, file, cb) => {
-    if (/^image\//.test(file.mimetype)) return cb(null, true);
+    if (/^(image|video)\//.test(file.mimetype)) return cb(null, true);
     if (file.mimetype === 'application/octet-stream' && file.originalname.endsWith('.enc')) return cb(null, true);
-    cb(new Error('Only image files allowed for stories'));
+    cb(new Error('Only image or video files allowed for stories'));
   },
 });
+
+const uploadStoryFields = upload.fields([
+  { name: 'photo', maxCount: 1 },
+  { name: 'videoClips', maxCount: 5 },
+  { name: 'thumbClips', maxCount: 5 },
+]);
 
 function auth(req, res, next) {
   try { req.member = jwt.verify((req.headers.authorization || '').replace('Bearer ', ''), JWT_SECRET); next(); }
   catch { res.status(401).json({ error: 'Invalid token' }); }
 }
 
-function withImageUrl(req, story) {
+function withStoryUrls(req, story) {
   const proto = req.headers['x-forwarded-proto'] || req.protocol;
   const base = `${proto}://${req.get('host')}`;
-  return { ...story, imageUrl: `${base}/storage/${story.filename}` };
+  const clips = (story.clips || []).map((c) => ({
+    ...c,
+    url: `${base}/storage/${c.filename}`,
+    thumbUrl: c.thumbFilename ? `${base}/storage/${c.thumbFilename}` : null,
+  }));
+  return {
+    ...story,
+    imageUrl: `${base}/storage/${story.filename}`,
+    clips,
+  };
 }
 
 router.get('/stories', auth, (req, res) => {
-  res.json(db.getActiveStories().map((s) => withImageUrl(req, s)));
+  res.json(db.getActiveStories().map((s) => withStoryUrls(req, s)));
 });
 
-router.post('/stories', auth, upload.single('photo'), (req, res) => {
-  if (!req.file) return res.status(400).json({ error: 'No photo' });
+router.post('/stories', auth, (req, res, next) => {
+  uploadStoryFields(req, res, (err) => {
+    if (err) return res.status(400).json({ error: err.message });
+    next();
+  });
+}, (req, res) => {
+  const photoFile = req.files?.photo?.[0];
+  const videoClipFiles = req.files?.videoClips || [];
+  const thumbClipFiles = req.files?.thumbClips || [];
+
+  if (!photoFile && videoClipFiles.length === 0) {
+    return res.status(400).json({ error: 'No media provided' });
+  }
+
   const hours = Math.min(Math.max(Number(req.body.durationHours) || 24, 1), 168);
   const caption = String(req.body.caption || '').slice(0, 300);
-  const story = db.insertStory(req.file.filename, req.member.name, hours, caption);
-  res.json(withImageUrl(req, story));
+
+  if (videoClipFiles.length > 0) {
+    const clips = videoClipFiles.map((f, i) => ({
+      filename: f.filename,
+      thumbFilename: thumbClipFiles[i]?.filename || null,
+      durationSecs: req.body[`clipDuration${i}`] ? Number(req.body[`clipDuration${i}`]) : null,
+    }));
+    // Use first clip filename as the primary story filename for backward compat
+    const story = db.insertStory(videoClipFiles[0].filename, req.member.name, hours, caption, clips);
+    return res.json(withStoryUrls(req, story));
+  }
+
+  const story = db.insertStory(photoFile.filename, req.member.name, hours, caption);
+  res.json(withStoryUrls(req, story));
 });
 
 router.delete('/stories/:id', auth, (req, res) => {
