@@ -60,7 +60,7 @@ else
     COMPOSE="docker-compose"
 fi
 
-$COMPOSE --profile tunnel up -d
+$COMPOSE --profile tunnel up -d --build
 
 echo ""
 echo " Done! Your vault is now accessible at: $PUBLIC_URL"

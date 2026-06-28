@@ -54,7 +54,7 @@ if "%PUBLIC_URL%"=="" (
 
 echo.
 echo  Starting tunnel...
-docker compose --profile tunnel up -d
+docker compose --profile tunnel up -d --build
 
 if %errorlevel% neq 0 (
     echo.

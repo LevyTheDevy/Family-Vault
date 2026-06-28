@@ -49,13 +49,28 @@ fi
 echo " Detected IP: $LAN_IP"
 echo ""
 
-# Write .env so docker-compose passes the real host IP into the container
-printf "PUBLIC_URL=http://%s:3000\n" "$LAN_IP" > .env
+# Check if Cloudflare tunnel is already configured
+HAS_TUNNEL=""
+if [ -f .env ]; then
+    TOKEN_VAL=$(grep "^CLOUDFLARE_TOKEN=" .env | cut -d= -f2-)
+    if [ -n "$TOKEN_VAL" ]; then
+        HAS_TUNNEL=1
+    fi
+fi
 
-# Start (or rebuild) the server
-echo " Starting FamilyVault..."
-echo " (First run downloads and builds the server — this takes a few minutes)"
-$COMPOSE up -d --build
+if [ -n "$HAS_TUNNEL" ]; then
+    echo " Cloudflare tunnel detected — keeping existing config."
+    echo ""
+    echo " Starting FamilyVault with tunnel..."
+    echo " (First run downloads and builds the server — this takes a few minutes)"
+    $COMPOSE --profile tunnel up -d --build
+else
+    # Write .env so docker-compose passes the real host IP into the container
+    printf "PUBLIC_URL=http://%s:3000\n" "$LAN_IP" > .env
+    echo " Starting FamilyVault..."
+    echo " (First run downloads and builds the server — this takes a few minutes)"
+    $COMPOSE up -d --build
+fi
 
 echo ""
 echo " FamilyVault is running!"

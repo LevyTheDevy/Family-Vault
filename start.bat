@@ -36,13 +36,27 @@ if not defined LAN_IP (
 echo  Detected IP: %LAN_IP%
 echo.
 
-:: Write .env so docker-compose passes the IP into the container
-echo PUBLIC_URL=http://%LAN_IP%:3000> .env
+:: Check if Cloudflare tunnel is already configured in .env
+set "HAS_TUNNEL="
+if exist .env (
+    for /f "tokens=1,* delims==" %%k in (.env) do (
+        if "%%k"=="CLOUDFLARE_TOKEN" if not "%%l"=="" set "HAS_TUNNEL=1"
+    )
+)
 
-:: Start (or rebuild) the server
-echo  Starting FamilyVault...
-echo  (First run downloads and builds the server - this takes a few minutes)
-docker compose up -d --build
+if defined HAS_TUNNEL (
+    echo  Cloudflare tunnel detected — keeping existing config.
+    echo.
+    echo  Starting FamilyVault with tunnel...
+    echo  (First run downloads and builds the server - this takes a few minutes)
+    docker compose --profile tunnel up -d --build
+) else (
+    :: Write .env so docker-compose passes the IP into the container
+    echo PUBLIC_URL=http://%LAN_IP%:3000> .env
+    echo  Starting FamilyVault...
+    echo  (First run downloads and builds the server - this takes a few minutes)
+    docker compose up -d --build
+)
 if %errorlevel% neq 0 (
     echo.
     echo  Something went wrong. Check the output above.
