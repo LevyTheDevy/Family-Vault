@@ -33,6 +33,29 @@ function isEncrypted(uri) {
   return !!(filename && filename.endsWith('.enc'));
 }
 
+// A write killed mid-flight (e.g. by an OOM kill — the exact failure that
+// produces gray images) leaves a truncated JPEG on disk. Without this check the
+// disk-hit path below would treat that stub as valid and serve it forever.
+// We verify the SOI (FF D8) and EOI (FF D9) markers via a FileHandle so only
+// 4 bytes are read, regardless of image size. Any error → treat as corrupt.
+function isIntactJpegFile(path) {
+  let handle;
+  try {
+    const file = new FSFile(path);
+    const size = file.size;
+    if (!size || size < 4) return false;
+    handle = file.open();
+    const head = handle.readBytes(2);
+    handle.offset = size - 2;
+    const tail = handle.readBytes(2);
+    return head[0] === 0xFF && head[1] === 0xD8 && tail[0] === 0xFF && tail[1] === 0xD9;
+  } catch {
+    return false;
+  } finally {
+    try { handle?.close(); } catch {}
+  }
+}
+
 async function decryptAndCache(uri) {
   const filename = uri.match(/\/storage\/([^?#]+)/)?.[1];
   if (!filename) return null;
@@ -41,10 +64,19 @@ async function decryptAndCache(uri) {
   // In-memory hit — instant, no disk I/O
   if (_memCache.has(filename)) return _memCache.get(filename);
 
-  // Disk hit — file already decrypted by a previous session
+  // Disk hit — file already decrypted by a previous session.
+  // For the re-encoded JPEG variants (feed/thumb — the ones in the gray-image
+  // bug) validate integrity before trusting the file: a truncated file from a
+  // prior interrupted write self-heals here (deleted + re-decrypted below)
+  // instead of being cached as a permanent gray image. Full-res keeps the
+  // original (possibly PNG/HEIC) bytes, so we can't assert JPEG markers there.
+  const isJpegVariant = /_feed\.jpg$|_thumb\.jpg$/.test(cacheFile);
   try {
     const info = await FileSystem.getInfoAsync(cacheFile);
-    if (info.exists) { _memCache.set(filename, cacheFile); return cacheFile; }
+    if (info.exists) {
+      if (!isJpegVariant || isIntactJpegFile(cacheFile)) { _memCache.set(filename, cacheFile); return cacheFile; }
+      await FileSystem.deleteAsync(cacheFile, { idempotent: true });
+    }
   } catch {}
 
   // Dedup — return the existing promise if a decrypt is already running for this file

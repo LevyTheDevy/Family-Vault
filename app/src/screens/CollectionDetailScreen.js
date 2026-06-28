@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View, FlatList, StyleSheet, ActivityIndicator, Text,
   TouchableOpacity, Alert, Modal, ScrollView,
@@ -19,7 +19,13 @@ export default function CollectionDetailScreen({ route, navigation }) {
   const [posts, setPosts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [listHeight, setListHeight] = useState(0);
+  const [activePostId, setActivePostId] = useState(null);
   const [commentPost, setCommentPost] = useState(null);
+  const listHeightRef = useRef(0);
+  const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 80 }).current;
+  const onViewableItemsChanged = useRef(({ viewableItems }) => {
+    setActivePostId(viewableItems[0]?.item?.id ?? null);
+  }).current;
   const [showMembers, setShowMembers] = useState(false);
   const [allMembers, setAllMembers] = useState([]);
   const me = getMemberName();
@@ -125,11 +131,29 @@ export default function CollectionDetailScreen({ route, navigation }) {
           keyExtractor={(p) => String(p.id)}
           pagingEnabled
           showsVerticalScrollIndicator={false}
-          onLayout={(e) => setListHeight(e.nativeEvent.layout.height)}
+          // Cap mounted full-screen slides — each decrypts + decodes a feed-res
+          // bitmap, so an unbounded window exhausts native heap (gray images).
+          windowSize={5}
+          initialNumToRender={3}
+          maxToRenderPerBatch={3}
+          removeClippedSubviews
+          onLayout={(e) => {
+            const h = e.nativeEvent.layout.height;
+            listHeightRef.current = h;
+            setListHeight(h);
+          }}
+          getItemLayout={(_, index) => ({
+            length: listHeightRef.current,
+            offset: listHeightRef.current * index,
+            index,
+          })}
+          onViewableItemsChanged={onViewableItemsChanged}
+          viewabilityConfig={viewabilityConfig}
           renderItem={({ item }) => (
             <PostSlide
               post={item}
               height={listHeight}
+              isActive={item.id === activePostId}
               collectionId={collection.id}
               onRemovedFromCollection={handleRemovedFromCollection}
               onDeleted={handleRemovedFromCollection}
