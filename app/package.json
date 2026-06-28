@@ -27,7 +27,7 @@
     "expo-secure-store": "~15.0.8",
     "expo-status-bar": "~3.0.9",
     "expo-video-thumbnails": "~10.0.8",
-    "ffmpeg-kit-react-native": "^6.0.2",
+    "ffmpeg-kit-react-native": "5.1.0",
     "react": "19.1.0",
     "react-native": "0.81.5",
     "react-native-gesture-handler": "~2.28.0",
