@@ -1,12 +1,17 @@
 # FamilyVault
 
-A self-hosted private social media app for families. Photos, videos, stories, and group chat — stored on hardware you own, with no third-party cloud.
+<p align="center">
+  <img src="https://img.shields.io/badge/platform-Android%20%7C%20iOS-black?style=flat-square" alt="Platform">
+  <img src="https://img.shields.io/badge/self--hosted-Docker-black?style=flat-square" alt="Self-hosted">
+  <img src="https://img.shields.io/badge/license-PolyForm%20Noncommercial-black?style=flat-square" alt="License">
+  <img src="https://img.shields.io/badge/encrypted-AES--256--GCM-black?style=flat-square" alt="Encryption">
+</p>
 
 <p align="center">
-  <a href="https://github.com/LevyTheDevy/Family-Vault/releases/download/v1.0.0/Screen_Recording_20260628_170947_FamilyVault.mp4">
-    <img src="https://img.shields.io/badge/▶%20Watch%20Demo-1%20min-black?style=for-the-badge" alt="Watch Demo">
-  </a>
+  A private social media app for families. Photos, videos, stories, and encrypted chat — on hardware you own.
 </p>
+
+<br>
 
 <table align="center">
   <tr>
@@ -25,7 +30,24 @@ A self-hosted private social media app for families. Photos, videos, stories, an
   </tr>
 </table>
 
-## Download the App
+<br>
+
+---
+
+## Features
+
+- **Feed** — Full-screen photo and video posts with likes, comments, and saves
+- **Dailies** — Disappearing stories with configurable expiry (1 hour to 1 week)
+- **Messages** — End-to-end encrypted group chat and DMs with GIF and media support
+- **Collections** — Shared photo albums between selected family members
+- **End-to-end encryption** — All content encrypted with AES-256-GCM before leaving the device
+- **No accounts required** — Join via invite link and QR code, no email or phone number needed
+- **Remote access** — Optional Cloudflare Tunnel for access outside your home network
+- **Admin panel** — Member management, invite links, and server backups via a local web UI
+
+---
+
+## Download
 
 **Android:** Download the latest APK from the [Releases page](https://github.com/LevyTheDevy/Family-Vault/releases/latest). Enable *Install from unknown sources* in your Android settings, then open the file to install.
 
@@ -35,52 +57,46 @@ A self-hosted private social media app for families. Photos, videos, stories, an
 
 ## Quick Start
 
-You need one computer to act as the server (always-on works best — a spare PC, a Raspberry Pi, or any home server). Everyone else just installs the app.
+You need one computer to act as the server — a spare PC, a Raspberry Pi, or any always-on machine. Everyone else just installs the app.
 
-### Step 1 — Install Docker Desktop
+**1. Install Docker Desktop**
 
-Download and install Docker Desktop for your operating system:
+- [Windows](https://docs.docker.com/desktop/install/windows-install/)
+- [Mac](https://docs.docker.com/desktop/install/mac-install/)
+- [Linux](https://docs.docker.com/desktop/install/linux-install/)
 
-- Windows: https://docs.docker.com/desktop/install/windows-install/
-- Mac: https://docs.docker.com/desktop/install/mac-install/
-- Linux: https://docs.docker.com/desktop/install/linux-install/
+Open Docker Desktop and make sure it is running before continuing.
 
-Once installed, open Docker Desktop and make sure it is running (you will see a whale icon in your taskbar or menu bar).
+**2. Download FamilyVault**
 
-### Step 2 — Download FamilyVault
+Click the green **Code** button on this page and select **Download ZIP**. Unzip it somewhere you will remember.
 
-Download this repository as a ZIP file from GitHub (click the green Code button, then Download ZIP), then unzip it somewhere you will remember, like your Documents folder.
-
-### Step 3 — Run the setup script
-
-This detects your IP, configures everything, starts the server, and opens the admin panel automatically.
+**3. Start the server**
 
 - **Windows:** Double-click `start.bat`
-- **Mac / Linux:** Open a terminal in the folder and run `./start.sh`
+- **Mac / Linux:** Run `./start.sh` in a terminal
 
-The first run takes a few minutes while Docker builds the server. After that it starts in seconds.
+The first run takes a few minutes while Docker builds the server. After that it starts in seconds. The admin panel opens in your browser automatically.
 
-### Step 4 — Create your admin account
+**4. Create your admin account**
 
-The setup script opens the admin panel in your browser automatically. Create your admin account there.
+Set up your admin account in the panel that opens. The admin panel is only accessible on your local network.
 
-The admin panel is only accessible on your local network — it is never reachable from the internet.
+**5. Invite your family**
 
-### Step 5 — Invite family members
+Generate an invite link in the admin panel and share it. Family members scan the QR code in the app to join instantly.
 
-In the admin panel, create an invite link and share it with family members. They scan the QR code in the app to join.
+**Stopping and starting**
 
-### Stopping and starting
-
-```
-docker compose stop      # stop the server
-docker compose start     # start it again
-docker compose down      # stop and remove containers (data is kept)
+```bash
+docker compose stop      # pause the server
+docker compose start     # resume
+docker compose down      # stop and remove containers (your data is kept)
 ```
 
-### Updating
+**Updating**
 
-```
+```bash
 docker compose down
 docker compose build --no-cache
 docker compose up -d
@@ -88,90 +104,41 @@ docker compose up -d
 
 ---
 
-## Accessing from outside your home
+## Remote Access
 
-By default the server is only accessible on your home network. To let family members connect from anywhere:
+By default the server is only reachable on your home network. To allow family members to connect from anywhere:
 
 - **Windows:** Double-click `remote-access.bat`
-- **Mac / Linux / Pi:** Run `./remote-access.sh` in a terminal
+- **Mac / Linux / Pi:** Run `./remote-access.sh`
 
-The script walks you through connecting a free [Cloudflare Tunnel](https://cloudflare.com) — you just paste one command from the Cloudflare dashboard and it handles the rest. You will need a free Cloudflare account and a domain name (~$10/year).
-
-Once set up, the tunnel starts automatically whenever you run `start.bat` / `start.sh`.
+The script connects a free [Cloudflare Tunnel](https://cloudflare.com) — paste one command from the Cloudflare dashboard and it handles the rest. Requires a free Cloudflare account and a domain name (~$10/year). Once set up, the tunnel starts automatically with the server.
 
 ---
 
 ## Raspberry Pi
 
-Docker works on the Pi out of the box. Install Docker with:
+Docker runs on the Pi out of the box. Install it with:
 
-```
+```bash
 curl -fsSL https://get.docker.com | sh
 sudo usermod -aG docker $USER
 ```
 
-Log out and back in, then follow the same steps from Step 2 above. The Pi makes an ideal always-on server since it draws very little power.
-
----
-
-## Manual setup (advanced)
-
-If you prefer not to use Docker:
-
-**Requirements:** Node.js 18 or later
-
-```bash
-cd vault
-npm install
-node src/index.js
-```
-
-All secrets (JWT key, vault access key) are auto-generated on first run and saved to the data directory. No environment variables required.
-
-To customise paths or use your own secrets, set these environment variables before starting:
-
-| Variable | Default | Description |
-|---|---|---|
-| `DATA_DIR` | `./data` | Where the database and generated secrets are stored |
-| `STORAGE_DIR` | `./storage` | Where uploaded photos and videos are stored |
-| `BACKUP_DIR` | `./backups` | Where server-side backups are saved |
-| `VAULT_NAME` | `Family Vault` | Name shown in the app |
-| `JWT_SECRET` | auto-generated | Override the JWT signing secret |
-| `VAULT_ACCESS_KEY` | auto-generated | Override the vault access key shown in the admin QR code |
-| `PORT` | `3000` | App API port |
-| `ADMIN_PORT` | `3001` | Admin panel port (localhost only) |
-
----
-
-## Features
-
-- Photo and video feed with likes, comments, and saves
-- Video posts with in-app trim (up to 60 seconds)
-- Dailies (disappearing stories) with configurable expiration (1 hour – 1 week)
-- Private collections shared between selected family members
-- Group chat and direct messages with GIF support and media sharing
-- Invite-link based registration — no email required
-- Admin panel for member management and server-side backups
-- Password reset flow managed through the admin panel
-- End-to-end encryption for all messages, captions, comments, photos, and videos
+Log out and back in, then follow the Quick Start steps above. The Pi is ideal as an always-on server — it draws very little power.
 
 ---
 
 ## Building the App
 
-Pre-built APKs for Android are attached to each [GitHub Release](https://github.com/LevyTheDevy/Family-Vault/releases). Download the latest `.apk`, enable *Install from unknown sources* in your Android settings, and install it.
+Pre-built Android APKs are attached to each [GitHub Release](https://github.com/LevyTheDevy/Family-Vault/releases). For iOS or to build from source:
 
-For iOS or to build from source:
-
-### Requirements
-
-- [Node.js](https://nodejs.org/) 18 or later
-- [Expo CLI](https://docs.expo.dev/get-started/installation/): `npm install -g expo-cli`
+**Requirements**
+- [Node.js](https://nodejs.org/) 18+
 - [EAS CLI](https://docs.expo.dev/build/introduction/): `npm install -g eas-cli`
 - An [Expo account](https://expo.dev/signup) (free)
-- iOS builds additionally require a Mac, Xcode, and an [Apple Developer account](https://developer.apple.com/programs/) ($99/year)
+- iOS builds require a Mac, Xcode, and an [Apple Developer account](https://developer.apple.com/programs/) ($99/year)
 
-### Android APK
+**Android**
 
 ```bash
 cd app
@@ -179,9 +146,7 @@ npm install
 eas build --platform android --profile preview
 ```
 
-EAS builds in the cloud and gives you a download link for the APK. No Android Studio required.
-
-### iOS IPA
+**iOS**
 
 ```bash
 cd app
@@ -189,56 +154,53 @@ npm install
 eas build --platform ios --profile production
 ```
 
-Requires your Apple Developer certificates to be configured in EAS. Run `eas credentials` to set them up.
-
-### Local build (advanced)
+**Local build**
 
 ```bash
 cd app
 npm install
-npx expo prebuild          # generates native android/ and ios/ folders
+npx expo prebuild
 ```
 
-Then open `android/` in Android Studio or `ios/` in Xcode and build from there.
+Then open `android/` in Android Studio or `ios/` in Xcode.
 
 ---
 
 ## Tech Stack
 
-**Server:** Node.js, Express, better-sqlite3, Multer, JWT
-
-**App:** React Native, Expo, React Navigation, expo-av, react-native-quick-crypto, react-native-video-trim
+| Layer | Technologies |
+|---|---|
+| Server | Node.js, Express, better-sqlite3, Multer, JWT |
+| App | React Native, Expo, React Navigation, expo-av |
+| Encryption | react-native-quick-crypto (AES-256-GCM, PBKDF2) |
 
 ---
 
-## Security Notes
+## Security
 
-- **End-to-end encryption:** All messages, captions, comments, photos, and videos are encrypted with AES-256-GCM before leaving the device. The server stores only ciphertext — it never sees plaintext content.
-- **Vault key:** A single vault key is shared across all members, derived via PBKDF2-SHA256 and wrapped individually with each member's password. The server never holds the unwrapped key. The key is stored in the device's secure enclave (Android Keystore / iOS Secure Enclave) so the password is only required on first login.
-- The admin panel does not expose user content. Backups are server-side only and accessible via SSH.
-- Invite links are single-use and can be revoked.
+- All messages, captions, comments, photos, and videos are encrypted with AES-256-GCM on-device. The server stores only ciphertext and never sees plaintext content.
+- The vault key is derived via PBKDF2-SHA256 and wrapped individually per member with their password. The server never holds the unwrapped key.
+- The vault key is stored in each device's secure enclave (Android Keystore / iOS Secure Enclave).
+- The admin panel does not expose user content and is never routed through the internet.
+- Invite links are single-use and revocable.
 - Passwords are hashed with PBKDF2 (100,000 iterations, SHA-256).
 - Login attempts are rate-limited per IP.
-- Media files are served with JWT authentication.
+- Media files require JWT authentication on every request.
 
-To report a security vulnerability, see [SECURITY.md](SECURITY.md).
+To report a vulnerability, see [SECURITY.md](SECURITY.md).
 
 ---
 
-## Legal & Content Policy
+## Legal
 
-FamilyVault is a self-hosted tool. **The person who deploys and operates the server is solely responsible** for all content stored and for compliance with applicable laws in their jurisdiction, including but not limited to:
+FamilyVault is a self-hosted tool. The person who deploys the server is solely responsible for all content stored and for compliance with applicable laws (GDPR, CCPA, COPPA, etc.).
 
-- Data protection and privacy laws (e.g. GDPR, CCPA, COPPA)
-- Laws governing the storage of images and videos of minors
-- Parental consent requirements for children's data
+Illegal content of any kind is strictly prohibited. CSAM must be reported immediately to [NCMEC](https://www.missingkids.org/gethelpnow/cybertipline) or your country's equivalent authority.
 
-**Prohibited content:** FamilyVault must not be used to store, share, or distribute any illegal content, including child sexual abuse material (CSAM). This is an absolute prohibition with no exceptions. If you encounter or suspect CSAM, report it immediately to the [National Center for Missing & Exploited Children (NCMEC)](https://www.missingkids.org/gethelpnow/cybertipline) or your country's equivalent authority.
-
-The author provides this software as-is with no warranty. See [LICENSE](LICENSE) for full terms.
+This software is provided as-is with no warranty. See [LICENSE](LICENSE) for full terms.
 
 ---
 
 ## License
 
-PolyForm Noncommercial 1.0.0 — free to use, modify, and self-host for personal or organizational non-commercial purposes. Commercial use (selling the software or offering paid services built on it) is not permitted. See [LICENSE](LICENSE) for full terms.
+[PolyForm Noncommercial 1.0.0](LICENSE) — free to use, modify, and self-host for personal or non-commercial use. Commercial use is not permitted.
