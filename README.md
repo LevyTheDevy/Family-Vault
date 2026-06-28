@@ -67,12 +67,27 @@ docker compose up -d
 
 ## Accessing from outside your home
 
-By default the server is only accessible on your home network. To let family members connect from anywhere, run the remote access setup script — it walks you through everything step by step. No technical knowledge required.
+By default the server is only accessible on your home network. To reach it from anywhere, set up a free Cloudflare Tunnel. You will need a free Cloudflare account and a domain name (~$10/year from Cloudflare).
 
-- **Windows:** Double-click `remote-access.bat`
-- **Mac / Linux:** Run `./remote-access.sh` in a terminal
+1. Go to [one.dash.cloudflare.com](https://one.dash.cloudflare.com) → **Networks → Tunnels → Create a tunnel**
+2. Choose **Cloudflared** → name it `familyvault` → click **Docker** under Install connector → copy the token (the long `eyJ...` string at the end)
+3. Add it to your `.env` file (in the same folder as `docker-compose.yml`):
+   ```
+   CLOUDFLARE_TOKEN=eyJ...your token here...
+   ```
+4. Start the tunnel:
+   ```bash
+   docker compose --profile tunnel up -d
+   ```
+5. Back in the Cloudflare dashboard, click **Next** → under **Public Hostname** set:
+   - Subdomain: `vault` (or anything you like)
+   - Domain: your domain
+   - Service type: `HTTP` → URL: `vault:3000`
+   - Click **Save tunnel**
 
-The script connects your vault to the internet using a free [Cloudflare Tunnel](https://cloudflare.com). You will need a free Cloudflare account and a domain name (available from Cloudflare for ~$10/year).
+Your vault is now reachable at `https://vault.yourdomain.com`. Share that URL with family members when they set up the app. The admin panel remains local-only at `http://localhost:3001/admin`.
+
+The tunnel starts automatically with the server from now on — just run `start.bat` (or `start.sh`) as normal.
 
 ---
 
