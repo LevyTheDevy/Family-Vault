@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { View, ActivityIndicator } from 'react-native';
+import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { Video } from 'expo-av';
+import CachedImage from './CachedImage';
 import * as LegacyFS from 'expo-file-system/legacy';
 import { File as FSFile } from 'expo-file-system';
 import { getDecryptImgBinFn } from '../utils/api';
@@ -115,6 +116,9 @@ export default function CachedVideo({ uri, style, shouldPlay = false, isLooping 
   if (encrypted && !localUri) {
     return (
       <View style={[{ backgroundColor: '#0a0a0a', alignItems: 'center', justifyContent: 'center' }, style]}>
+        {posterUri && (
+          <CachedImage uri={posterUri} style={StyleSheet.absoluteFillObject} resizeMode="cover" />
+        )}
         {loading && <ActivityIndicator color="rgba(255,255,255,0.4)" size="small" />}
       </View>
     );
@@ -130,8 +134,6 @@ export default function CachedVideo({ uri, style, shouldPlay = false, isLooping 
       resizeMode={resizeMode}
       onLoad={onLoad}
       onPlaybackStatusUpdate={onPlaybackStatusUpdate}
-      posterSource={posterUri ? { uri: posterUri } : undefined}
-      usePoster={!!posterUri}
       {...props}
     />
   );

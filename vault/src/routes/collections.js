@@ -13,7 +13,9 @@ function auth(req, res, next) {
 function thumbUrl(base, post) {
   if (!post) return null;
   const firstFile = (post.filenames && post.filenames[0]) || post.filename;
-  return firstFile ? `${base}/storage/${firstFile}` : null;
+  if (firstFile) return `${base}/storage/${firstFile}`;
+  if (post.thumbnailFilename) return `${base}/storage/${post.thumbnailFilename}`;
+  return null;
 }
 
 function withBase(req, post) {

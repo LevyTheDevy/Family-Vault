@@ -244,7 +244,7 @@ function PostSlide({
 
   const handleAddToCollection = async (colId) => {
     setShowCollections(false);
-    try { await addToCollection(colId, post.id); Alert.alert('Added', 'Photo added to collection.'); }
+    try { await addToCollection(colId, post.id); Alert.alert('Added', `${isVideoPost ? 'Video' : 'Photo'} added to collection.`); }
     catch (e) { Alert.alert('Error', e.message); }
   };
 
