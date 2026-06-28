@@ -2,6 +2,12 @@
 
 A self-hosted private social media app for families. Photos, videos, stories, and group chat — stored on hardware you own, with no third-party cloud.
 
+<p align="center">
+  <a href="https://github.com/LevyTheDevy/Family-Vault/releases/download/v1.0.0/Screen_Recording_20260628_170947_FamilyVault.mp4">
+    <img src="https://img.shields.io/badge/▶%20Watch%20Demo-1%20min-black?style=for-the-badge" alt="Watch Demo">
+  </a>
+</p>
+
 <table align="center">
   <tr>
     <td><img src="screenshots/Screenshot_20260628_165230_FamilyVault.jpg" width="150"></td>
