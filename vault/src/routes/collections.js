@@ -20,8 +20,20 @@ function withBase(req, post) {
   const proto = req.headers['x-forwarded-proto'] || req.protocol;
   const base = `${proto}://${req.get('host')}`;
   const filenames = post.filenames || (post.filename ? [post.filename] : []);
+  const feedFn = post.feedFilenames || [];
+  const thumbFn = post.thumbFilenames || [];
   const imageUrls = filenames.map((f) => `${base}/storage/${f}`);
-  return { ...post, imageUrls, imageUrl: imageUrls[0] || null };
+  const feedImageUrls = filenames.map((f, i) => `${base}/storage/${feedFn[i] || f}`);
+  const thumbImageUrls = filenames.map((f, i) => `${base}/storage/${thumbFn[i] || f}`);
+  const videoUrl = post.videoFilename ? `${base}/storage/${post.videoFilename}` : null;
+  const thumbnailUrl = post.thumbnailFilename ? `${base}/storage/${post.thumbnailFilename}` : null;
+  return {
+    ...post,
+    imageUrls, imageUrl: imageUrls[0] || null,
+    feedImageUrls, feedImageUrl: feedImageUrls[0] || null,
+    thumbImageUrls, thumbImageUrl: thumbImageUrls[0] || null,
+    videoUrl, thumbnailUrl,
+  };
 }
 
 // GET /collections — only collections the user is a member of or created
