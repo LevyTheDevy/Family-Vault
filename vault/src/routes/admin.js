@@ -468,7 +468,6 @@ router.post('/admin/api/backup/restore/:name', requireAdmin, (req, res) => {
 router.get('/admin', (req, res) => res.send(adminPage()));
 
 function adminPage() {
-  const BACKUP_DIR_HINT = BACKUP_DIR;
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -476,279 +475,365 @@ function adminPage() {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>FamilyVault Admin</title>
 <style>
-:root{
-  --bg:#fff;--card:#f7f7f7;--border:#e8e8e8;--border-sub:#f0f0f0;
-  --text:#0d0d0d;--text-muted:#888;--text-dim:#bbb;
-  --input-bg:#f2f2f2;--input-border:#e0e0e0;--input-focus:#0d0d0d;
-  --btn-bg:#0d0d0d;--btn-color:#fff;
-  --btn-outline-color:#0d0d0d;--btn-outline-border:#ccc;
-  --section-lbl:#aaa;--stat-lbl:#aaa;--td-color:#666;
-  --empty-color:#ccc;--avatar-bg:#e8e8e8;
-  --overlay:rgba(0,0,0,1);--modal-bg:#fff;--modal-border:#e0e0e0;
-  --topbar-border:#eee;--chip-color:#999;--chip-border:#e0e0e0;
-  --row-hover:#f9f9f9;
-}
-@media(prefers-color-scheme:dark){
-  :root{
-    --bg:#000;--card:#0d0d0d;--border:#1e1e1e;--border-sub:#111;
-    --text:#fff;--text-muted:#555;--text-dim:#444;
-    --input-bg:#111;--input-border:#222;--input-focus:#fff;
-    --btn-bg:#fff;--btn-color:#000;
-    --btn-outline-color:#fff;--btn-outline-border:#333;
-    --section-lbl:#444;--stat-lbl:#555;--td-color:#aaa;
-    --empty-color:#333;--avatar-bg:#1e1e1e;
-    --overlay:rgba(0,0,0,1);--modal-bg:#0d0d0d;--modal-border:#222;
-    --topbar-border:#111;--chip-color:#444;--chip-border:#1e1e1e;
-    --row-hover:#0a0a0a;
-  }
-}
 *{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#f4f4f5;--sidebar:#ffffff;--card:#ffffff;
+  --border:#e4e4e7;--border-sub:#f0f0f0;
+  --text:#09090b;--text-sub:#71717a;--text-dim:#a1a1aa;
+  --input-bg:#ffffff;--input-border:#e4e4e7;
+  --btn:#09090b;--btn-text:#ffffff;
+  --nav-active:#09090b;--nav-active-text:#ffffff;--nav-hover:#f4f4f5;
+  --badge-green-bg:#f0fdf4;--badge-green:#16a34a;--badge-green-border:#bbf7d0;
+  --badge-red-bg:#fef2f2;--badge-red:#dc2626;--badge-red-border:#fecaca;
+}
 body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh}
 .hidden{display:none!important}
-/* ── Auth views ── */
-.auth-wrap{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:24px;gap:32px}
-.brand{font-size:28px;font-weight:700;letter-spacing:-0.5px}
-.auth-card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:32px;width:100%;max-width:400px;display:flex;flex-direction:column;gap:20px}
-.auth-title{font-size:18px;font-weight:600}
-.auth-sub{color:var(--text-muted);font-size:13px;margin-top:-12px;line-height:1.5}
-.field{display:flex;flex-direction:column;gap:6px}
-.field label{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted)}
-.field input{background:var(--input-bg);border:1px solid var(--input-border);border-radius:8px;color:var(--text);font-size:15px;padding:13px 14px;outline:none;transition:border-color .15s}
-.field input:focus{border-color:var(--input-focus)}
-.btn{background:var(--btn-bg);color:var(--btn-color);border:none;border-radius:10px;font-size:15px;font-weight:700;padding:14px;cursor:pointer;transition:opacity .15s}
-.btn:hover{opacity:.82}
-.btn:disabled{opacity:.3;cursor:default}
-.btn-outline{background:transparent;color:var(--btn-outline-color);border:1px solid var(--btn-outline-border)}
-.btn-danger{background:#e53935;color:#fff}
-.btn-sm{font-size:13px;padding:8px 14px;border-radius:8px}
+
+/* ── Auth ── */
+.auth-wrap{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:24px;background:var(--bg)}
+.auth-box{width:100%;max-width:380px;display:flex;flex-direction:column;gap:28px}
+.auth-logo{display:flex;align-items:center;gap:10px}
+.auth-logo-mark{width:36px;height:36px;background:#09090b;border-radius:9px;display:flex;align-items:center;justify-content:center}
+.auth-logo-mark svg{width:20px;height:20px;fill:#fff}
+.auth-logo-name{font-size:18px;font-weight:700;letter-spacing:-0.3px}
+.auth-card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:28px;display:flex;flex-direction:column;gap:18px;box-shadow:0 1px 3px rgba(0,0,0,.04)}
+.auth-head{display:flex;flex-direction:column;gap:4px}
+.auth-title{font-size:17px;font-weight:600;letter-spacing:-0.2px}
+.auth-sub{font-size:13px;color:var(--text-sub);line-height:1.5}
+.field{display:flex;flex-direction:column;gap:5px}
+.field label{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;color:var(--text-sub)}
+.field input{background:var(--input-bg);border:1px solid var(--input-border);border-radius:8px;color:var(--text);font-size:14px;padding:10px 12px;outline:none;transition:border-color .15s;width:100%}
+.field input:focus{border-color:var(--text)}
+.btn{background:var(--btn);color:var(--btn-text);border:none;border-radius:8px;font-size:14px;font-weight:600;padding:11px 18px;cursor:pointer;transition:opacity .15s;white-space:nowrap}
+.btn:hover{opacity:.85}
+.btn:disabled{opacity:.35;cursor:default}
+.btn-outline{background:transparent;color:var(--text);border:1px solid var(--border)}
+.btn-outline:hover{background:var(--nav-hover)}
+.btn-danger{background:#dc2626;color:#fff}
+.btn-sm{font-size:13px;padding:7px 13px;border-radius:7px}
 .btn-xs{font-size:11px;padding:5px 10px;border-radius:6px}
-.err{color:#e53935;font-size:13px;text-align:center}
-/* ── Dashboard layout ── */
-.dash{display:flex;flex-direction:column;min-height:100vh}
-.topbar{display:flex;align-items:center;justify-content:space-between;padding:16px 28px;border-bottom:1px solid var(--topbar-border);gap:16px}
-.topbar-left{display:flex;align-items:center;gap:10px}
-.topbar-brand{font-size:17px;font-weight:700}
-.topbar-vault{font-size:13px;color:var(--chip-color);font-weight:400;padding:3px 10px;border:1px solid var(--chip-border);border-radius:20px}
-.topbar-right{display:flex;align-items:center;gap:14px;color:var(--text-muted);font-size:13px}
-.content{max-width:920px;margin:0 auto;padding:32px 24px;display:flex;flex-direction:column;gap:36px;width:100%}
-/* ── Section ── */
-.section-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;gap:12px;flex-wrap:wrap}
-.section-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;color:var(--section-lbl)}
+.err{color:#dc2626;font-size:13px}
+
+/* ── Dashboard shell ── */
+.dash{display:flex;min-height:100vh}
+.sidebar{width:224px;flex-shrink:0;background:var(--sidebar);border-right:1px solid var(--border);display:flex;flex-direction:column;position:fixed;top:0;left:0;bottom:0;z-index:10}
+.sb-top{padding:20px 16px 12px}
+.sb-logo{display:flex;align-items:center;gap:9px;margin-bottom:6px}
+.sb-logo-mark{width:28px;height:28px;background:#09090b;border-radius:7px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.sb-logo-mark svg{width:16px;height:16px;fill:#fff}
+.sb-logo-name{font-size:15px;font-weight:700;letter-spacing:-0.2px}
+.sb-vname{font-size:12px;color:var(--text-sub);padding:2px 0 0 37px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sb-nav{flex:1;padding:8px 10px;display:flex;flex-direction:column;gap:2px;overflow-y:auto}
+.nav-item{display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:7px;font-size:13px;font-weight:500;color:var(--text-sub);cursor:pointer;transition:background .1s,color .1s;user-select:none;border:none;background:transparent;width:100%;text-align:left}
+.nav-item:hover{background:var(--nav-hover);color:var(--text)}
+.nav-item.active{background:var(--nav-active);color:var(--nav-active-text)}
+.nav-item svg{width:15px;height:15px;flex-shrink:0;opacity:.7}
+.nav-item.active svg{opacity:1}
+.nav-divider{height:1px;background:var(--border);margin:6px 10px}
+.sb-foot{padding:12px 10px;border-top:1px solid var(--border)}
+.sb-admin{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 6px}
+.sb-admin-name{font-size:13px;font-weight:500;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sb-signout{font-size:12px;color:var(--text-sub);background:none;border:none;cursor:pointer;padding:4px 6px;border-radius:5px}
+.sb-signout:hover{background:var(--nav-hover);color:var(--text)}
+
+/* ── Main content ── */
+.main{margin-left:224px;flex:1;padding:36px 40px;max-width:860px}
+.page{display:flex;flex-direction:column;gap:28px}
+.page-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:4px}
+.page-title{font-size:20px;font-weight:700;letter-spacing:-0.3px}
+.page-sub{font-size:13px;color:var(--text-sub);margin-top:2px}
+
+/* ── Cards ── */
+.card{background:var(--card);border:1px solid var(--border);border-radius:12px;overflow:hidden}
+.card-body{padding:20px 24px}
+.card-row{display:flex;align-items:center;gap:12px;padding:13px 24px;border-bottom:1px solid var(--border-sub)}
+.card-row:last-child{border-bottom:none}
+
 /* ── Stats ── */
-.stats-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px}
-.stat-card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:18px 16px}
-.stat-val{font-size:26px;font-weight:700;line-height:1;margin-bottom:6px}
-.stat-lbl{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:var(--stat-lbl)}
-/* ── Vault info ── */
-.vault-card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:24px;display:flex;gap:28px;align-items:flex-start;flex-wrap:wrap}
-.vault-qr{background:#fff;border-radius:10px;padding:12px;flex-shrink:0}
-.vault-qr img{display:block;width:140px;height:140px}
-.vault-info{display:flex;flex-direction:column;gap:10px;flex:1}
-.vault-url-label{font-size:11px;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:1px}
-.vault-url{font-size:18px;font-weight:700;font-family:monospace;word-break:break-all}
-.vault-hint{font-size:12px;color:var(--text-dim);line-height:1.6}
-/* ── Backup ── */
-.backup-card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:20px;display:flex;flex-direction:column;gap:16px}
-.backup-sched{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-.sched-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted)}
-.sched-select{background:var(--input-bg);border:1px solid var(--input-border);border-radius:7px;color:var(--text);font-size:13px;padding:7px 10px;outline:none;cursor:pointer}
-.sched-select:focus{border-color:var(--input-focus)}
-.backup-status{font-size:12px;color:var(--text-muted)}
-.backup-table{width:100%;border-collapse:collapse}
-.backup-table th{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--section-lbl);text-align:left;padding:6px 10px;border-bottom:1px solid var(--border)}
-.backup-table td{font-size:12px;padding:9px 10px;border-bottom:1px solid var(--border-sub);color:var(--td-color);vertical-align:middle}
-.backup-table tr:last-child td{border-bottom:none}
-.backup-table tr:hover td{background:var(--row-hover)}
+.stats-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:12px}
+.stat-card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px 18px}
+.stat-val{font-size:28px;font-weight:700;letter-spacing:-0.5px;line-height:1;margin-bottom:6px}
+.stat-lbl{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;color:var(--text-sub)}
+
+/* ── Badges ── */
+.badge{font-size:11px;font-weight:600;padding:2px 8px;border-radius:20px;border:1px solid;white-space:nowrap}
+.badge-green{color:var(--badge-green);background:var(--badge-green-bg);border-color:var(--badge-green-border)}
+.badge-red{color:var(--badge-red);background:var(--badge-red-bg);border-color:var(--badge-red-border)}
+.badge-gray{color:var(--text-sub);background:var(--bg);border-color:var(--border)}
+
 /* ── Members ── */
-.members-grid{display:flex;flex-direction:column;gap:10px}
-.member-chip{display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:12px 16px}
-.member-avatar{width:38px;height:38px;border-radius:19px;background:var(--avatar-bg);display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:600;flex-shrink:0}
-.member-info{flex:1}
+.member-avatar{width:34px;height:34px;border-radius:50%;background:var(--text);color:#fff;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex-shrink:0}
 .member-name{font-size:14px;font-weight:500}
-.member-date{font-size:11px;color:var(--text-dim);margin-top:2px}
-.empty-hint{color:var(--empty-color);font-size:13px;padding:16px 0}
-/* ── Invite cards ── */
-.invites-list{display:flex;flex-direction:column;gap:10px}
-.invite-card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:18px 20px}
-.invite-card.used{opacity:.5}
-.invite-card.revoked{opacity:.4}
-.invite-top{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}
-.invite-label{font-size:15px;font-weight:600}
-.badge{font-size:11px;font-weight:600;padding:3px 9px;border-radius:20px;border:1px solid}
-.badge-active{color:#43a047;border-color:#43a047;background:rgba(67,160,71,.1)}
-.badge-used{color:var(--text-muted);border-color:var(--border);background:transparent}
-.badge-revoked{color:#e53935;border-color:#e53935;background:rgba(229,57,53,.08)}
-.invite-code{font-family:monospace;font-size:16px;letter-spacing:2px;color:var(--text);margin-bottom:10px;word-break:break-all}
-.invite-meta{font-size:11px;color:var(--text-dim);margin-bottom:12px}
-.invite-actions{display:flex;gap:8px;flex-wrap:wrap}
+.member-meta{font-size:12px;color:var(--text-sub);margin-top:1px}
+
+/* ── Invites ── */
+.invite-label{font-size:14px;font-weight:600}
+.invite-meta{font-size:12px;color:var(--text-sub);margin-top:2px}
+.card-row.dimmed{opacity:.45}
+
+/* ── QR / connection ── */
+.qr-wrap{background:#fff;border:1px solid var(--border);border-radius:10px;padding:12px;display:inline-block;flex-shrink:0}
+.qr-wrap img{display:block;width:136px;height:136px}
+.conn-row{display:flex;gap:24px;align-items:flex-start;flex-wrap:wrap}
+.conn-info{flex:1;min-width:220px;display:flex;flex-direction:column;gap:14px}
+.field-label{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;color:var(--text-sub);margin-bottom:5px}
+.input-row{display:flex;gap:8px;align-items:center}
+.mono-input{flex:1;background:var(--input-bg);border:1px solid var(--input-border);border-radius:8px;color:var(--text);font-size:13px;padding:9px 12px;font-family:monospace;outline:none;min-width:0;transition:border-color .15s}
+.mono-input:focus{border-color:var(--text)}
+.hint{font-size:12px;color:var(--text-sub);line-height:1.6;margin-top:4px}
+
+/* ── Backup ── */
+.backup-controls{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.select{background:var(--input-bg);border:1px solid var(--input-border);border-radius:7px;color:var(--text);font-size:13px;padding:7px 10px;outline:none;cursor:pointer}
+.select:focus{border-color:var(--text)}
+.backup-table{width:100%;border-collapse:collapse}
+.backup-table th{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.7px;color:var(--text-sub);text-align:left;padding:8px 14px;border-bottom:1px solid var(--border)}
+.backup-table td{font-size:13px;padding:11px 14px;border-bottom:1px solid var(--border-sub);color:var(--text);vertical-align:middle}
+.backup-table tr:last-child td{border-bottom:none}
+.backup-table tr:hover td{background:var(--bg)}
+.td-dim{color:var(--text-sub)!important;font-size:12px!important}
+
+/* ── Empty ── */
+.empty{color:var(--text-dim);font-size:13px;padding:20px 24px}
+
 /* ── Modal ── */
-.modal-backdrop{position:fixed;inset:0;background:var(--overlay);display:flex;align-items:center;justify-content:center;padding:24px;z-index:100}
-.modal{background:var(--modal-bg);border:1px solid var(--modal-border);border-radius:16px;padding:28px;width:100%;max-width:440px;display:flex;flex-direction:column;gap:20px}
-.modal-title{font-size:17px;font-weight:600}
-.modal-qr-wrap{background:#fff;border-radius:10px;padding:14px;align-self:center}
-.modal-qr-wrap img{display:block;width:240px;height:240px}
-.modal-code{text-align:center;font-family:monospace;font-size:18px;letter-spacing:3px;color:#fff;background:#111;padding:14px;border-radius:8px;word-break:break-all}
-.modal-hint{color:#555;font-size:12px;text-align:center;line-height:1.6}
+.modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;padding:24px;z-index:100;backdrop-filter:blur(2px)}
+.modal{background:#fff;border:1px solid var(--border);border-radius:16px;padding:28px;width:100%;max-width:440px;display:flex;flex-direction:column;gap:20px;box-shadow:0 20px 60px rgba(0,0,0,.15)}
+.modal-title{font-size:17px;font-weight:700;letter-spacing:-0.2px}
+.modal-qr{background:#fff;border:1px solid var(--border);border-radius:10px;padding:16px;align-self:center}
+.modal-qr img{display:block;width:220px;height:220px}
+.modal-url{font-family:monospace;font-size:12px;color:var(--text-sub);word-break:break-all;background:var(--bg);border-radius:8px;padding:10px 14px;border:1px solid var(--border)}
+.modal-hint{color:var(--text-sub);font-size:12px;text-align:center;line-height:1.6}
 .modal-foot{display:flex;gap:10px}
 .modal-foot .btn{flex:1}
+
 /* ── Spinner ── */
 .spinner-wrap{display:flex;align-items:center;justify-content:center;min-height:100vh}
-.spinner{width:28px;height:28px;border:3px solid var(--border);border-top-color:var(--text);border-radius:50%;animation:spin .7s linear infinite}
+.spinner{width:26px;height:26px;border:2.5px solid var(--border);border-top-color:var(--text);border-radius:50%;animation:spin .7s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
+
+@media(max-width:680px){
+  .sidebar{width:100%;height:auto;position:relative;border-right:none;border-bottom:1px solid var(--border)}
+  .sb-nav{flex-direction:row;padding:6px 10px;overflow-x:auto;gap:4px}
+  .nav-item{white-space:nowrap}
+  .main{margin-left:0;padding:20px 16px}
+}
 </style>
 </head>
 <body>
 
 <div id="v-loading" class="spinner-wrap"><div class="spinner"></div></div>
 
-<!-- Setup -->
+<!-- Auth: Setup -->
 <div id="v-setup" class="auth-wrap hidden">
-  <div class="brand">FamilyVault</div>
-  <div class="auth-card">
-    <div>
-      <div class="auth-title">Create admin account</div>
-      <div class="auth-sub" style="margin-top:6px">First time setup. Create an account to manage your vault.</div>
+  <div class="auth-box">
+    <div class="auth-logo">
+      <div class="auth-logo-mark"><svg viewBox="0 0 20 20"><path d="M10 2L3 6v4c0 4.4 3 8.4 7 9.3 4-1 7-4.9 7-9.3V6L10 2z"/></svg></div>
+      <div class="auth-logo-name">FamilyVault</div>
     </div>
-    <div class="field"><label>Vault name</label><input id="setup-vault-name" placeholder="e.g. The Smiths" autocomplete="off" value="Family Vault"></div>
-    <div class="field"><label>Admin name</label><input id="setup-name" placeholder="Your name" autocomplete="off"></div>
-    <div class="field"><label>Password</label><input id="setup-pass" type="password" placeholder="Choose a strong password (8+ chars)"></div>
-    <div id="setup-err" class="err hidden"></div>
-    <button class="btn" id="setup-btn" onclick="doSetup()">Create Account</button>
+    <div class="auth-card">
+      <div class="auth-head">
+        <div class="auth-title">Create admin account</div>
+        <div class="auth-sub">First-time setup. You'll manage the vault from this account.</div>
+      </div>
+      <div class="field"><label>Vault name</label><input id="setup-vault-name" placeholder="e.g. The Smith Family" autocomplete="off" value="Family Vault"></div>
+      <div class="field"><label>Your name</label><input id="setup-name" placeholder="Admin name" autocomplete="off"></div>
+      <div class="field"><label>Password</label><input id="setup-pass" type="password" placeholder="8+ characters"></div>
+      <div id="setup-err" class="err hidden"></div>
+      <button class="btn" id="setup-btn" onclick="doSetup()">Create Account</button>
+    </div>
   </div>
 </div>
 
-<!-- Login -->
+<!-- Auth: Login -->
 <div id="v-login" class="auth-wrap hidden">
-  <div class="brand">FamilyVault</div>
-  <div class="auth-card">
-    <div class="auth-title">Admin sign in</div>
-    <div class="field"><label>Name</label><input id="login-name" placeholder="Admin name" autocomplete="off"></div>
-    <div class="field"><label>Password</label><input id="login-pass" type="password" placeholder="Password"></div>
-    <div id="login-err" class="err hidden"></div>
-    <button class="btn" id="login-btn" onclick="doLogin()">Sign In</button>
+  <div class="auth-box">
+    <div class="auth-logo">
+      <div class="auth-logo-mark"><svg viewBox="0 0 20 20"><path d="M10 2L3 6v4c0 4.4 3 8.4 7 9.3 4-1 7-4.9 7-9.3V6L10 2z"/></svg></div>
+      <div class="auth-logo-name">FamilyVault</div>
+    </div>
+    <div class="auth-card">
+      <div class="auth-head">
+        <div class="auth-title">Admin sign in</div>
+      </div>
+      <div class="field"><label>Name</label><input id="login-name" placeholder="Admin name" autocomplete="off"></div>
+      <div class="field"><label>Password</label><input id="login-pass" type="password" placeholder="Password"></div>
+      <div id="login-err" class="err hidden"></div>
+      <button class="btn" id="login-btn" onclick="doLogin()">Sign In</button>
+    </div>
   </div>
 </div>
 
 <!-- Dashboard -->
 <div id="v-dash" class="dash hidden">
-  <div class="topbar">
-    <div class="topbar-left">
-      <div class="topbar-brand">FamilyVault</div>
-      <div class="topbar-vault" id="vault-name-chip"></div>
+  <aside class="sidebar">
+    <div class="sb-top">
+      <div class="sb-logo">
+        <div class="sb-logo-mark"><svg viewBox="0 0 20 20"><path d="M10 2L3 6v4c0 4.4 3 8.4 7 9.3 4-1 7-4.9 7-9.3V6L10 2z"/></svg></div>
+        <div class="sb-logo-name">FamilyVault</div>
+      </div>
+      <div class="sb-vname" id="vault-name-chip"></div>
     </div>
-    <div class="topbar-right">
-      <span id="admin-name"></span>
-      <button class="btn btn-outline btn-sm" onclick="doLogout()">Sign out</button>
+
+    <nav class="sb-nav">
+      <button class="nav-item active" data-sec="s-overview" onclick="showSection('s-overview')">
+        <svg viewBox="0 0 20 20" fill="currentColor"><rect x="2" y="2" width="7" height="7" rx="1.5"/><rect x="11" y="2" width="7" height="7" rx="1.5"/><rect x="2" y="11" width="7" height="7" rx="1.5"/><rect x="11" y="11" width="7" height="7" rx="1.5"/></svg>
+        Overview
+      </button>
+      <button class="nav-item" data-sec="s-members" onclick="showSection('s-members')">
+        <svg viewBox="0 0 20 20" fill="currentColor"><path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zM17 6a3 3 0 11-6 0 3 3 0 016 0zM12.93 17c.046-.327.07-.66.07-1a6.97 6.97 0 00-1.5-4.33A5 5 0 0119 16v1h-6.07zM6 11a5 5 0 015 5v1H1v-1a5 5 0 015-5z"/></svg>
+        Members
+      </button>
+      <button class="nav-item" data-sec="s-invites" onclick="showSection('s-invites')">
+        <svg viewBox="0 0 20 20" fill="currentColor"><path d="M2.003 5.884L10 9.882l7.997-3.998A2 2 0 0016 4H4a2 2 0 00-1.997 1.884z"/><path d="M18 8.118l-8 4-8-4V14a2 2 0 002 2h12a2 2 0 002-2V8.118z"/></svg>
+        Invites
+      </button>
+      <div class="nav-divider"></div>
+      <button class="nav-item" data-sec="s-connection" onclick="showSection('s-connection')">
+        <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3.172 5.172a4 4 0 015.656 0L10 6.343l1.172-1.171a4 4 0 115.656 5.656L10 17.657l-6.828-6.829a4 4 0 010-5.656z" clip-rule="evenodd"/></svg>
+        Connection
+      </button>
+      <button class="nav-item" data-sec="s-backups" onclick="showSection('s-backups')">
+        <svg viewBox="0 0 20 20" fill="currentColor"><path d="M7 3a1 1 0 000 2h6a1 1 0 100-2H7zM4 7a1 1 0 011-1h10a1 1 0 110 2H5a1 1 0 01-1-1zM2 11a2 2 0 012-2h12a2 2 0 012 2v4a2 2 0 01-2 2H4a2 2 0 01-2-2v-4z"/></svg>
+        Backups
+      </button>
+      <button class="nav-item" data-sec="s-settings" onclick="showSection('s-settings')">
+        <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd"/></svg>
+        Settings
+      </button>
+    </nav>
+
+    <div class="sb-foot">
+      <div class="sb-admin">
+        <span class="sb-admin-name" id="admin-name"></span>
+        <button class="sb-signout" onclick="doLogout()">Sign out</button>
+      </div>
     </div>
-  </div>
+  </aside>
 
-  <div class="content">
+  <main class="main">
 
-    <!-- Stats -->
-    <div>
-      <div class="section-head"><span class="section-title">Overview</span></div>
-      <div class="stats-grid" id="stats-grid">
+    <!-- Overview -->
+    <div id="s-overview" class="page">
+      <div>
+        <div class="page-title">Overview</div>
+        <div class="page-sub">At-a-glance stats for your vault.</div>
+      </div>
+      <div class="stats-grid">
         <div class="stat-card"><div class="stat-val" id="stat-members">—</div><div class="stat-lbl">Members</div></div>
         <div class="stat-card"><div class="stat-val" id="stat-posts">—</div><div class="stat-lbl">Posts</div></div>
         <div class="stat-card"><div class="stat-val" id="stat-stories">—</div><div class="stat-lbl">Active Dailys</div></div>
         <div class="stat-card"><div class="stat-val" id="stat-messages">—</div><div class="stat-lbl">Messages</div></div>
-        <div class="stat-card"><div class="stat-val" id="stat-storage">—</div><div class="stat-lbl">Storage Used</div></div>
+        <div class="stat-card"><div class="stat-val" id="stat-storage">—</div><div class="stat-lbl">Storage</div></div>
       </div>
     </div>
 
-    <!-- Vault settings -->
-    <div>
-      <div class="section-head"><span class="section-title">Vault Settings</span></div>
-      <div class="vault-card" style="gap:16px">
-        <div class="vault-info" style="gap:8px">
-          <div class="vault-url-label">Vault Name</div>
-          <div style="display:flex;gap:8px;align-items:center">
-            <input id="vault-name-input" style="flex:1;background:var(--input-bg);border:1px solid var(--input-border);border-radius:8px;color:var(--text);font-size:15px;padding:9px 12px;outline:none;min-width:0" placeholder="Family Vault">
-            <button class="btn btn-sm" id="vault-name-btn" onclick="saveVaultName(this)">Save</button>
-          </div>
-          <div style="font-size:11px;color:var(--text-dim)">Shown in the app and on the connection screen.</div>
+    <!-- Members -->
+    <div id="s-members" class="page hidden">
+      <div>
+        <div class="page-title">Members</div>
+        <div class="page-sub">Everyone who has joined the vault.</div>
+      </div>
+      <div class="card">
+        <div id="members-grid"></div>
+      </div>
+    </div>
+
+    <!-- Invites -->
+    <div id="s-invites" class="page hidden">
+      <div class="page-head">
+        <div>
+          <div class="page-title">Invites</div>
+          <div class="page-sub">Create a personal invite link for each new family member.</div>
         </div>
+        <button class="btn btn-sm" onclick="showCreateInvite()">+ New Invite</button>
+      </div>
+      <div class="card">
+        <div id="invites-list"></div>
       </div>
     </div>
 
-    <!-- Vault connection -->
-    <div>
-      <div class="section-head"><span class="section-title">Vault Connection</span></div>
-      <div class="vault-card">
-        <div class="vault-qr"><img id="vault-qr-img" src="" alt="QR"></div>
-        <div class="vault-info">
-          <div class="vault-url-label">Server URL</div>
-          <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
-            <input id="server-url-input" style="flex:1;background:var(--input-bg);border:1px solid var(--input-border);border-radius:8px;color:var(--text);font-size:13px;padding:9px 12px;font-family:monospace;outline:none;min-width:0" placeholder="http://192.168.1.165:3000">
-            <button class="btn btn-sm" id="server-url-btn" onclick="saveServerUrl(this)">Save</button>
+    <!-- Connection -->
+    <div id="s-connection" class="page hidden">
+      <div>
+        <div class="page-title">Vault Connection</div>
+        <div class="page-sub">QR code for returning members. Set the URL to your Cloudflare domain for remote access.</div>
+      </div>
+      <div class="card card-body">
+        <div class="conn-row">
+          <div class="qr-wrap"><img id="vault-qr-img" src="" alt="QR" width="136" height="136"></div>
+          <div class="conn-info">
+            <div>
+              <div class="field-label">Server URL</div>
+              <div class="input-row">
+                <input id="server-url-input" class="mono-input" placeholder="http://192.168.1.165:3000">
+                <button class="btn btn-sm" onclick="saveServerUrl(this)">Save</button>
+              </div>
+              <div class="hint">Set to your Cloudflare domain (https://vault.yourdomain.com) for remote access, or your Pi's LAN IP for local only.</div>
+            </div>
+            <div class="hint">Returning members scan this QR in the app to sign back in. New members need a personal invite.</div>
           </div>
-          <div style="font-size:11px;color:#444;margin-top:6px">Used in all QR codes and invite links. Set to your Pi's LAN IP, or your Cloudflare domain for remote access.</div>
-          <div class="vault-hint" style="margin-top:14px">Returning members scan this QR code with the FamilyVault app to sign in. New members need a personal invite code below.</div>
         </div>
       </div>
     </div>
 
     <!-- Backups -->
-    <div>
-      <div class="section-head">
-        <span class="section-title">Backups</span>
-        <button class="btn btn-sm" onclick="runBackupNow(this)">Save to Server</button>
+    <div id="s-backups" class="page hidden">
+      <div class="page-head">
+        <div>
+          <div class="page-title">Backups</div>
+          <div class="page-sub">Encrypted snapshots saved to the server's storage volume.</div>
+        </div>
+        <button class="btn btn-sm" onclick="runBackupNow(this)">Back Up Now</button>
       </div>
-      <div class="backup-card">
-        <div class="backup-sched">
-          <span class="sched-label">Auto-backup</span>
-          <select id="backup-schedule" class="sched-select" onchange="saveBackupSchedule()">
+      <div class="card card-body" style="display:flex;flex-direction:column;gap:16px">
+        <div class="backup-controls">
+          <span style="font-size:13px;font-weight:500">Auto-backup</span>
+          <select id="backup-schedule" class="select" onchange="saveBackupSchedule()">
             <option value="off">Off</option>
             <option value="daily">Daily</option>
             <option value="weekly">Weekly</option>
           </select>
-          <span class="sched-label" style="margin-left:8px">Keep last</span>
-          <select id="backup-keep" class="sched-select" onchange="saveBackupSchedule()">
+          <span style="font-size:13px;font-weight:500;margin-left:8px">Keep last</span>
+          <select id="backup-keep" class="select" onchange="saveBackupSchedule()">
             <option value="3">3</option>
             <option value="5">5</option>
             <option value="10">10</option>
             <option value="30">30</option>
           </select>
-          <span id="backup-last" class="backup-status"></span>
+          <span id="backup-last" style="font-size:12px;color:var(--text-sub)"></span>
         </div>
-        <div id="backup-list"><div class="empty-hint">No saved backups yet.</div></div>
+        <div id="backup-list"></div>
       </div>
     </div>
 
-    <!-- Invite codes -->
-    <div>
-      <div class="section-head">
-        <span class="section-title">Invite Codes</span>
-        <button class="btn btn-sm" onclick="showCreateInvite()">+ Create Invite</button>
+    <!-- Settings -->
+    <div id="s-settings" class="page hidden">
+      <div>
+        <div class="page-title">Settings</div>
+        <div class="page-sub">Vault configuration.</div>
       </div>
-      <div id="invites-list" class="invites-list">
-        <div class="empty-hint">No invite codes yet. Create one to add a family member.</div>
+      <div class="card card-body" style="display:flex;flex-direction:column;gap:14px">
+        <div>
+          <div class="field-label">Vault Name</div>
+          <div class="input-row" style="margin-top:6px">
+            <input id="vault-name-input" style="flex:1;background:var(--input-bg);border:1px solid var(--input-border);border-radius:8px;color:var(--text);font-size:14px;padding:10px 12px;outline:none;min-width:0;transition:border-color .15s" placeholder="Family Vault">
+            <button class="btn btn-sm" onclick="saveVaultName(this)">Save</button>
+          </div>
+          <div class="hint" style="margin-top:6px">Displayed in the app header and on the connection screen.</div>
+        </div>
       </div>
     </div>
 
-    <!-- Members -->
-    <div>
-      <div class="section-head"><span class="section-title">Members</span></div>
-      <div id="members-grid" class="members-grid">
-        <div class="empty-hint">No members yet.</div>
-      </div>
-    </div>
-
-  </div>
+  </main>
 </div>
 
-<!-- Create invite modal -->
+<!-- Modal: Create Invite -->
 <div id="m-create" class="modal-backdrop hidden">
   <div class="modal">
-    <div class="modal-title">New Invite Code</div>
-    <div class="field">
-      <label>For who?</label>
-      <input id="invite-label" placeholder="e.g. Grandma Jones" autocomplete="off">
-    </div>
-    <div class="field">
-      <label>Your admin password</label>
-      <input id="invite-admin-pass" type="password" placeholder="Confirm your password" autocomplete="current-password">
-    </div>
+    <div class="modal-title">New Invite</div>
+    <div class="field"><label>For who?</label><input id="invite-label" placeholder="e.g. Grandma Jones" autocomplete="off"></div>
+    <div class="field"><label>Your admin password</label><input id="invite-admin-pass" type="password" placeholder="Confirm your password" autocomplete="current-password"></div>
     <div id="create-err" class="err hidden"></div>
     <div class="modal-foot">
       <button class="btn btn-outline" onclick="hideCreateInvite()">Cancel</button>
@@ -757,19 +842,13 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
   </div>
 </div>
 
-<!-- Set temp password modal -->
+<!-- Modal: Temp Password -->
 <div id="m-temppass" class="modal-backdrop hidden" onclick="hideTempPass(event)">
   <div class="modal" onclick="event.stopPropagation()">
     <div class="modal-title">Set Temporary Password</div>
-    <div id="temppass-hint" class="modal-hint" style="text-align:left;color:#555"></div>
-    <div class="field">
-      <label>Temporary Password</label>
-      <input id="temppass-input" type="text" placeholder="e.g. Family2024Reset" autocomplete="off">
-    </div>
-    <div class="field">
-      <label>Your admin password</label>
-      <input id="temppass-admin-pass" type="password" placeholder="Confirm your password" autocomplete="current-password">
-    </div>
+    <div id="temppass-hint" style="font-size:13px;color:var(--text-sub);line-height:1.5"></div>
+    <div class="field"><label>Temporary Password</label><input id="temppass-input" type="text" placeholder="e.g. Family2024Reset" autocomplete="off"></div>
+    <div class="field"><label>Your admin password</label><input id="temppass-admin-pass" type="password" placeholder="Confirm your password" autocomplete="current-password"></div>
     <div id="temppass-err" class="err hidden"></div>
     <div class="modal-foot">
       <button class="btn btn-outline" onclick="hideTempPass()">Cancel</button>
@@ -778,15 +857,15 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
   </div>
 </div>
 
-<!-- QR modal -->
+<!-- Modal: QR Code -->
 <div id="m-qr" class="modal-backdrop hidden" onclick="hideQr(event)">
   <div class="modal" onclick="event.stopPropagation()">
-    <div class="modal-title" id="qr-title">Invite Code</div>
-    <div class="modal-qr-wrap"><img id="qr-img" src="" alt="QR" width="240" height="240"></div>
-    <div class="modal-code" id="qr-code-text"></div>
-    <div class="modal-hint" id="qr-hint">Family member scans this in the FamilyVault app to join. One-time use.</div>
+    <div class="modal-title" id="qr-title">Invite</div>
+    <div class="modal-qr"><img id="qr-img" src="" alt="QR" width="220" height="220"></div>
+    <div class="modal-url" id="qr-code-text"></div>
+    <div class="modal-hint" id="qr-hint">Scan in the FamilyVault app to join. One-time use — expires in 7 days.</div>
     <div class="modal-foot">
-      <button class="btn btn-outline" onclick="copyQrCode()">Copy Code</button>
+      <button class="btn btn-outline" onclick="copyQrCode()">Copy Link</button>
       <button class="btn" onclick="hideQr()">Done</button>
     </div>
   </div>
@@ -795,7 +874,6 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 <script>
 const api = window.location.origin;
 let TOKEN = sessionStorage.getItem('fv_admin_token');
-
 
 function setErr(id, msg) {
   const el = document.getElementById(id);
@@ -807,6 +885,12 @@ function hide(id) { document.getElementById(id).classList.add('hidden'); }
 function showView(id) {
   ['v-loading','v-setup','v-login','v-dash'].forEach(v => document.getElementById(v).classList.add('hidden'));
   show(id);
+}
+function showSection(id) {
+  document.querySelectorAll('.page').forEach(p => p.classList.add('hidden'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  show(id);
+  document.querySelector('[data-sec="' + id + '"]')?.classList.add('active');
 }
 
 async function apiFetch(path, opts = {}) {
@@ -862,22 +946,17 @@ async function doLogin() {
 }
 
 function doLogout() {
-  TOKEN = null;
-  sessionStorage.removeItem('fv_admin_token');
-  showView('v-login');
+  TOKEN = null; sessionStorage.removeItem('fv_admin_token'); showView('v-login');
 }
 
 async function loadDashboard(status) {
   showView('v-dash');
-  if (!status) {
-    try { status = await apiFetch('/admin/api/status'); } catch {}
-  }
+  if (!status) { try { status = await apiFetch('/admin/api/status'); } catch {} }
   const vn = status?.vaultName || '';
   document.getElementById('vault-name-chip').textContent = vn;
-  document.getElementById('vault-name-chip').style.display = vn ? '' : 'none';
   if (document.getElementById('vault-name-input') && !document.getElementById('vault-name-input').value)
     document.getElementById('vault-name-input').value = vn;
-
+  document.getElementById('admin-name').textContent = TOKEN ? (JSON.parse(atob(TOKEN.split('.')[1]))?.name || '') : '';
   const [vaultData, members, invites, urlData] = await Promise.all([
     apiFetch('/admin/api/vault-qr'),
     apiFetch('/admin/api/members'),
@@ -892,30 +971,22 @@ async function loadDashboard(status) {
   loadBackups();
 }
 
-// ── Vault name ───────────────────────────────────────────────────────────────
-
 async function saveVaultName(btn) {
   const name = document.getElementById('vault-name-input').value.trim();
   if (!name) { alert('Enter a vault name'); return; }
-  const orig = btn.textContent;
-  btn.disabled = true; btn.textContent = 'Saving…';
+  const orig = btn.textContent; btn.disabled = true; btn.textContent = 'Saving…';
   try {
     await apiFetch('/admin/api/vault-name', { method: 'POST', body: JSON.stringify({ vaultName: name }) });
-    const chip = document.getElementById('vault-name-chip');
-    chip.textContent = name;
-    chip.style.display = '';
+    document.getElementById('vault-name-chip').textContent = name;
     btn.textContent = '✓ Saved';
     setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 1800);
   } catch (e) { alert('Error: ' + e.message); btn.textContent = orig; btn.disabled = false; }
 }
 
-// ── Server URL ────────────────────────────────────────────────────────────────
-
 async function saveServerUrl(btn) {
   const url = document.getElementById('server-url-input').value.trim();
   if (!url) { alert('Enter a URL first'); return; }
-  const orig = btn.textContent;
-  btn.disabled = true; btn.textContent = 'Saving…';
+  const orig = btn.textContent; btn.disabled = true; btn.textContent = 'Saving…';
   try {
     await apiFetch('/admin/api/server-url', { method: 'POST', body: JSON.stringify({ url }) });
     const vaultData = await apiFetch('/admin/api/vault-qr');
@@ -924,8 +995,6 @@ async function saveServerUrl(btn) {
     setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 1800);
   } catch (e) { alert('Error: ' + e.message); btn.textContent = orig; btn.disabled = false; }
 }
-
-// ── Stats ────────────────────────────────────────────────────────────────────
 
 function fmtBytes(n) {
   if (n >= 1e9) return (n / 1e9).toFixed(1) + ' GB';
@@ -945,113 +1014,115 @@ async function loadStats() {
   } catch {}
 }
 
-// ── Backup ───────────────────────────────────────────────────────────────────
-
 async function loadBackups() {
   try {
     const { settings, backups } = await apiFetch('/admin/api/backups');
     document.getElementById('backup-schedule').value = settings.schedule || 'off';
     const keepSel = document.getElementById('backup-keep');
-    const keepVal = String(settings.keepLast || 5);
-    const opt = Array.from(keepSel.options).find(o => o.value === keepVal);
-    if (opt) keepSel.value = keepVal;
-    if (settings.lastBackupAt) {
+    const opt = Array.from(keepSel.options).find(o => o.value === String(settings.keepLast || 5));
+    if (opt) keepSel.value = opt.value;
+    if (settings.lastBackupAt)
       document.getElementById('backup-last').textContent = 'Last: ' + new Date(settings.lastBackupAt).toLocaleString();
-    }
     renderBackups(backups);
   } catch {}
 }
 
 function renderBackups(backups) {
   const el = document.getElementById('backup-list');
-  if (!backups.length) { el.innerHTML = '<div class="empty-hint">No saved backups yet. Click "Save to Server" to create one.</div>'; return; }
+  if (!backups.length) { el.innerHTML = '<div class="empty">No backups yet.</div>'; return; }
   el.innerHTML = \`
     <table class="backup-table">
       <thead><tr><th>File</th><th>Size</th><th>Created</th><th></th></tr></thead>
-      <tbody>
-        \${backups.map(b => \`
-          <tr>
-            <td style="font-family:monospace;font-size:11px">\${esc(b.name)}</td>
-            <td>\${fmtBytes(b.size)}</td>
-            <td style="white-space:nowrap">\${new Date(b.createdAt).toLocaleString()}</td>
-            <td style="text-align:right;white-space:nowrap;display:flex;gap:6px;justify-content:flex-end">
-              <button class="btn btn-outline btn-xs" onclick="restoreBackup('\${esc(b.name)}','\${new Date(b.createdAt).toLocaleString()}')">Restore</button>
-              <button class="btn btn-danger btn-xs" onclick="deleteBackup('\${esc(b.name)}')">✕</button>
-            </td>
-          </tr>
-        \`).join('')}
+      <tbody>\${backups.map(b => \`
+        <tr>
+          <td style="font-family:monospace;font-size:12px">\${esc(b.name)}</td>
+          <td class="td-dim">\${fmtBytes(b.size)}</td>
+          <td class="td-dim" style="white-space:nowrap">\${new Date(b.createdAt).toLocaleString()}</td>
+          <td style="text-align:right;white-space:nowrap">
+            <button class="btn btn-outline btn-xs" style="margin-right:6px" onclick="restoreBackup('\${esc(b.name)}','\${new Date(b.createdAt).toLocaleString()}')">Restore</button>
+            <button class="btn btn-danger btn-xs" onclick="deleteBackup('\${esc(b.name)}')">Delete</button>
+          </td>
+        </tr>\`).join('')}
       </tbody>
     </table>
-    <div style="font-size:11px;color:var(--text-dim);margin-top:10px">Backups survive server restarts and rebuilds. To download a copy, use SSH to access the Docker volume.</div>
+    <div style="font-size:12px;color:var(--text-dim);margin-top:10px;padding:0 2px">To download a backup, SSH into the Pi and copy from the Docker volume.</div>
   \`;
 }
 
 async function runBackupNow(btn) {
-  const orig = btn.textContent;
-  btn.disabled = true; btn.textContent = 'Saving…';
+  const orig = btn.textContent; btn.disabled = true; btn.textContent = 'Saving…';
   try {
-    const { filename } = await apiFetch('/admin/api/backup/run', { method: 'POST' });
-    btn.textContent = '✓ Saved';
+    await apiFetch('/admin/api/backup/run', { method: 'POST' });
+    btn.textContent = '✓ Done';
     document.getElementById('backup-last').textContent = 'Last: ' + new Date().toLocaleString();
     await loadBackups();
     setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 2000);
-  } catch (e) {
-    alert('Backup failed: ' + e.message);
-    btn.textContent = orig; btn.disabled = false;
-  }
+  } catch (e) { alert('Backup failed: ' + e.message); btn.textContent = orig; btn.disabled = false; }
 }
 
 async function saveBackupSchedule() {
-  const schedule = document.getElementById('backup-schedule').value;
-  const keepLast = Number(document.getElementById('backup-keep').value);
   try {
-    await apiFetch('/admin/api/backup/settings', { method: 'POST', body: JSON.stringify({ schedule, keepLast }) });
+    await apiFetch('/admin/api/backup/settings', { method: 'POST', body: JSON.stringify({
+      schedule: document.getElementById('backup-schedule').value,
+      keepLast: Number(document.getElementById('backup-keep').value),
+    })});
   } catch (e) { alert('Error: ' + e.message); }
 }
 
 async function deleteBackup(name) {
-  if (!confirm('Delete this backup? This cannot be undone.')) return;
-  try {
-    await apiFetch('/admin/api/backups/' + encodeURIComponent(name), { method: 'DELETE' });
-    await loadBackups();
-  } catch (e) { alert('Error: ' + e.message); }
+  if (!confirm('Delete this backup? Cannot be undone.')) return;
+  try { await apiFetch('/admin/api/backups/' + encodeURIComponent(name), { method: 'DELETE' }); await loadBackups(); }
+  catch (e) { alert('Error: ' + e.message); }
 }
 
 async function restoreBackup(name, dateStr) {
-  if (!confirm('Restore backup from ' + dateStr + '?\\n\\nThis will replace ALL current data — members, posts, messages, and media — with the contents of this backup.\\n\\nThe server will restart automatically. This cannot be undone.')) return;
+  if (!confirm('Restore backup from ' + dateStr + '?\\n\\nThis replaces ALL current data and restarts the server. Cannot be undone.')) return;
   try {
     await apiFetch('/admin/api/backup/restore/' + encodeURIComponent(name), { method: 'POST' });
-    document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;min-height:100vh;flex-direction:column;gap:16px;font-family:sans-serif;background:var(--bg,#fff);color:var(--text,#000)">'
-      + '<div style="font-size:22px;font-weight:700">Restoring backup...</div>'
-      + '<div style="font-size:14px;color:#888">The server is restarting. This page will reload automatically.</div>'
-      + '</div>';
-    // Poll until server responds again, then reload
-    const poll = setInterval(async () => {
-      try {
-        await fetch('/admin/api/status');
-        clearInterval(poll);
-        location.reload();
-      } catch {}
-    }, 2000);
+    document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;min-height:100vh;flex-direction:column;gap:14px;font-family:sans-serif"><div style="font-size:20px;font-weight:700">Restoring…</div><div style="font-size:13px;color:#888">Server is restarting. Page will reload shortly.</div></div>';
+    const poll = setInterval(async () => { try { await fetch('/admin/api/status'); clearInterval(poll); location.reload(); } catch {} }, 2000);
   } catch (e) { alert('Restore failed: ' + e.message); }
 }
 
-// ── Members ───────────────────────────────────────────────────────────────────
-
 function renderMembers(members) {
   const el = document.getElementById('members-grid');
-  if (!members.length) { el.innerHTML = '<div class="empty-hint">No members yet.</div>'; return; }
+  if (!members.length) { el.innerHTML = '<div class="empty">No members yet. Create an invite to add someone.</div>'; return; }
   el.innerHTML = members.map(m => \`
-    <div class="member-chip">
+    <div class="card-row">
       <div class="member-avatar">\${m.name[0].toUpperCase()}</div>
-      <div class="member-info">
-        <div class="member-name">\${esc(m.name)}\${m.resetRequested ? ' <span class="badge badge-revoked" style="font-size:10px;vertical-align:middle">Reset requested</span>' : ''}</div>
-        <div class="member-date">Joined \${m.createdAt ? new Date(m.createdAt).toLocaleDateString() : '—'}\${m.hasTempPassword ? ' · Temp password active' : ''}</div>
+      <div class="member-info" style="flex:1">
+        <div class="member-name">\${esc(m.name)}\${m.resetRequested ? ' <span class="badge badge-red" style="font-size:10px;vertical-align:middle;margin-left:6px">Reset requested</span>' : ''}</div>
+        <div class="member-meta">Joined \${m.createdAt ? new Date(m.createdAt).toLocaleDateString() : '—'}\${m.hasTempPassword ? ' · Temp password active' : ''}</div>
       </div>
-      <button class="btn btn-outline btn-sm" onclick="showSetTempPass('\${esc(m.name)}')" title="Set a temporary password for this member">Temp Pass</button>
+      <button class="btn btn-outline btn-sm" onclick="showSetTempPass('\${esc(m.name)}')">Temp Pass</button>
       <button class="btn btn-danger btn-sm" onclick="removeMember('\${esc(m.name)}')">Remove</button>
     </div>
   \`).join('');
+}
+
+function renderInvites(invites) {
+  const el = document.getElementById('invites-list');
+  if (!invites.length) { el.innerHTML = '<div class="empty">No invites yet. Create one to add a family member.</div>'; return; }
+  el.innerHTML = invites.map(inv => {
+    const badge = inv.revoked
+      ? '<span class="badge badge-red">Revoked</span>'
+      : inv.used ? \`<span class="badge badge-gray">Used by \${esc(inv.usedBy||'')}</span>\`
+      : '<span class="badge badge-green">Active</span>';
+    const dim = inv.revoked || inv.used ? ' dimmed' : '';
+    return \`
+      <div class="card-row\${dim}">
+        <div style="flex:1">
+          <div class="invite-label">\${esc(inv.label)}</div>
+          <div class="invite-meta">Created \${new Date(inv.createdAt).toLocaleDateString()}\${inv.used ? ' · Used '+new Date(inv.usedAt).toLocaleDateString() : ''}</div>
+        </div>
+        \${badge}
+        \${!inv.revoked && !inv.used ? \`
+          <button class="btn btn-sm" style="margin-left:8px" onclick="showQr('\${inv.id}','\${esc(inv.label)}')">Show QR</button>
+          <button class="btn btn-danger btn-sm" onclick="revokeInvite('\${inv.id}')">Revoke</button>
+        \` : (!inv.revoked ? \`<button class="btn btn-outline btn-sm" style="margin-left:8px" onclick="showQr('\${inv.id}','\${esc(inv.label)}')">View QR</button>\` : '')}
+      </div>
+    \`;
+  }).join('');
 }
 
 let tempPassTarget = null;
@@ -1059,101 +1130,49 @@ function showSetTempPass(name) {
   tempPassTarget = name;
   document.getElementById('temppass-input').value = '';
   document.getElementById('temppass-admin-pass').value = '';
-  document.getElementById('temppass-hint').textContent = 'Set a temporary password for ' + name + '. They sign in with it once, then must create a new password.';
+  document.getElementById('temppass-hint').textContent = 'Set a temporary password for ' + name + '. They sign in once with it, then create a new one.';
   setErr('temppass-err', '');
   document.getElementById('temppass-btn').disabled = false;
   show('m-temppass');
   setTimeout(() => document.getElementById('temppass-input').focus(), 50);
 }
-function hideTempPass(e) {
-  if (!e || e.target === document.getElementById('m-temppass')) hide('m-temppass');
-}
+function hideTempPass(e) { if (!e || e.target === document.getElementById('m-temppass')) hide('m-temppass'); }
 async function doSetTempPass() {
   const btn = document.getElementById('temppass-btn');
   const pw = document.getElementById('temppass-input').value.trim();
-  const adminPassword = document.getElementById('temppass-admin-pass').value;
+  const ap = document.getElementById('temppass-admin-pass').value;
   if (!pw || pw.length < 4) { setErr('temppass-err', 'Must be at least 4 characters'); return; }
-  if (!adminPassword) { setErr('temppass-err', 'Enter your admin password'); return; }
+  if (!ap) { setErr('temppass-err', 'Enter your admin password'); return; }
   btn.disabled = true; setErr('temppass-err', '');
   try {
-    await apiFetch(\`/admin/api/members/\${encodeURIComponent(tempPassTarget)}/set-temp-password\`, {
-      method: 'POST', body: JSON.stringify({ tempPassword: pw, adminPassword }),
-    });
+    await apiFetch(\`/admin/api/members/\${encodeURIComponent(tempPassTarget)}/set-temp-password\`, { method: 'POST', body: JSON.stringify({ tempPassword: pw, adminPassword: ap }) });
     hide('m-temppass');
     alert('Temp password set for ' + tempPassTarget + '.\\n\\nTell them to sign in with:\\n' + pw + '\\n\\nThey will be prompted to set a new password immediately.');
-    const members = await apiFetch('/admin/api/members');
-    renderMembers(members);
+    renderMembers(await apiFetch('/admin/api/members'));
   } catch (e) { setErr('temppass-err', e.message); btn.disabled = false; }
 }
 
 async function removeMember(name) {
-  if (!confirm(\`Remove \${name} from the vault?\\n\\nThis permanently deletes ALL their posts, stories, messages, and files. This cannot be undone.\`)) return;
+  if (!confirm(\`Remove \${name}?\\n\\nPermanently deletes all their posts, stories, messages, and files. Cannot be undone.\`)) return;
   try {
     await apiFetch(\`/admin/api/members/\${encodeURIComponent(name)}\`, { method: 'DELETE' });
-    const members = await apiFetch('/admin/api/members');
-    renderMembers(members);
+    renderMembers(await apiFetch('/admin/api/members'));
     loadStats();
   } catch (e) { alert('Error: ' + e.message); }
-}
-
-// ── Invites ───────────────────────────────────────────────────────────────────
-
-function renderInvites(invites) {
-  const el = document.getElementById('invites-list');
-  if (!invites.length) { el.innerHTML = '<div class="empty-hint">No invite codes yet. Create one to add a family member.</div>'; return; }
-  el.innerHTML = invites.map(inv => {
-    const cls = inv.revoked ? 'revoked' : inv.used ? 'used' : '';
-    const badge = inv.revoked
-      ? '<span class="badge badge-revoked">Revoked</span>'
-      : inv.used
-        ? \`<span class="badge badge-used">Used by \${esc(inv.usedBy || '')}</span>\`
-        : '<span class="badge badge-active">Active</span>';
-    const created = new Date(inv.createdAt).toLocaleDateString();
-    return \`
-      <div class="invite-card \${cls}">
-        <div class="invite-top">
-          <div class="invite-label">\${esc(inv.label)}</div>
-          \${badge}
-        </div>
-        <div class="invite-meta">Created \${created}\${inv.used ? ' · Used ' + new Date(inv.usedAt).toLocaleDateString() : ''}</div>
-        <div class="invite-actions">
-          \${!inv.revoked && !inv.used ? \`
-            <button class="btn btn-sm" onclick="showQr('\${inv.id}','\${esc(inv.label)}')">Show QR</button>
-            <button class="btn btn-danger btn-sm" onclick="revokeInvite('\${inv.id}')">Revoke</button>
-          \` : \`
-            \${!inv.revoked ? \`<button class="btn btn-outline btn-sm" onclick="showQr('\${inv.id}','\${esc(inv.label)}')">View QR</button>\` : ''}
-          \`}
-        </div>
-      </div>
-    \`;
-  }).join('');
 }
 
 let currentQrCode = '';
 async function showQr(inviteId, label) {
   const stored = sessionStorage.getItem('fv_invite_' + inviteId);
   if (stored) {
-    try {
-      const { url, qr } = JSON.parse(stored);
-      await showInviteQr(label, url, qr);
-    } catch { alert('QR data corrupted — revoke and create a new invite.'); }
+    try { const { url, qr } = JSON.parse(stored); await showInviteQr(label, url, qr); }
+    catch { alert('QR data missing — revoke and create a new invite.'); }
   } else {
     alert('QR code is only available during the session it was created.\\n\\nRevoke this invite and create a new one to get a fresh QR code.');
   }
 }
-
-function hideQr(e) {
-  if (!e || e.target === document.getElementById('m-qr')) hide('m-qr');
-}
-function copyQrCode() {
-  navigator.clipboard.writeText(currentQrCode).then(() => alert('Copied!'));
-}
-async function copyCode(code) {
-  try {
-    const { vaultCode } = await apiFetch(\`/admin/api/invites/\${code}/qr\`);
-    navigator.clipboard.writeText(vaultCode).then(() => alert('Copied!'));
-  } catch (e) { alert('Error: ' + e.message); }
-}
+function hideQr(e) { if (!e || e.target === document.getElementById('m-qr')) hide('m-qr'); }
+function copyQrCode() { navigator.clipboard.writeText(currentQrCode).then(() => alert('Copied!')); }
 
 function showCreateInvite() {
   document.getElementById('invite-label').value = '';
@@ -1165,50 +1184,39 @@ function showCreateInvite() {
 }
 function hideCreateInvite() { hide('m-create'); }
 
-document.getElementById('invite-label').addEventListener('keydown', e => { if (e.key === 'Enter') doCreateInvite(); });
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('invite-label').addEventListener('keydown', e => { if (e.key === 'Enter') doCreateInvite(); });
+});
 
 async function doCreateInvite() {
   const btn = document.getElementById('create-btn');
   btn.disabled = true; setErr('create-err', '');
   const label = document.getElementById('invite-label').value.trim();
-  const adminPassword = document.getElementById('invite-admin-pass').value;
+  const ap = document.getElementById('invite-admin-pass').value;
   if (!label) { setErr('create-err', 'Enter a name for this invite'); btn.disabled = false; return; }
-  if (!adminPassword) { setErr('create-err', 'Enter your admin password'); btn.disabled = false; return; }
+  if (!ap) { setErr('create-err', 'Enter your admin password'); btn.disabled = false; return; }
   try {
-    const result = await apiFetch('/admin/api/invites', {
-      method: 'POST',
-      body: JSON.stringify({ label, adminPassword }),
-    });
+    const result = await apiFetch('/admin/api/invites', { method: 'POST', body: JSON.stringify({ label, adminPassword: ap }) });
     sessionStorage.setItem('fv_invite_' + result.id, JSON.stringify({ url: result.inviteUrl, qr: result.qrDataUrl }));
     hide('m-create');
     await showInviteQr(label, result.inviteUrl, result.qrDataUrl);
-    const invites = await apiFetch('/admin/api/invites');
-    renderInvites(invites);
+    renderInvites(await apiFetch('/admin/api/invites'));
   } catch (e) { setErr('create-err', e.message); btn.disabled = false; }
-}
-
-function getServerUrl() {
-  const input = document.getElementById('server-url-input');
-  if (input && input.value.trim()) return input.value.trim().replace(/\\/$/, '');
-  // Fallback: admin panel is on :3001, API is on :3000
-  return window.location.origin.replace(':3001', ':3000');
 }
 
 async function showInviteQr(label, inviteUrl, qrDataUrl) {
   document.getElementById('qr-title').textContent = label;
   document.getElementById('qr-code-text').textContent = inviteUrl;
-  document.getElementById('qr-hint').textContent = 'Family member scans this in the FamilyVault app to join. One-time use — expires in 7 days.';
   currentQrCode = inviteUrl;
   document.getElementById('qr-img').src = qrDataUrl || '';
   show('m-qr');
 }
 
 async function revokeInvite(id) {
-  if (!confirm('Revoke this invite code? It cannot be undone.')) return;
+  if (!confirm('Revoke this invite? Cannot be undone.')) return;
   try {
     await apiFetch(\`/admin/api/invites/\${id}\`, { method: 'DELETE' });
-    const invites = await apiFetch('/admin/api/invites');
-    renderInvites(invites);
+    renderInvites(await apiFetch('/admin/api/invites'));
   } catch (e) { alert('Error: ' + e.message); }
 }
 
