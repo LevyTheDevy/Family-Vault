@@ -121,13 +121,14 @@ To customise paths or use your own secrets, set these environment variables befo
 ## Features
 
 - Photo and video feed with likes, comments, and saves
-- Stories with configurable expiration
+- Video posts with in-app trim (up to 60 seconds)
+- Dailies (disappearing stories) with configurable expiration (1 hour – 1 week)
 - Private collections shared between selected family members
 - Group chat and direct messages with GIF support and media sharing
 - Invite-link based registration — no email required
 - Admin panel for member management and server-side backups
 - Password reset flow managed through the admin panel
-- End-to-end encryption for all messages, captions, comments, and photos
+- End-to-end encryption for all messages, captions, comments, photos, and videos
 
 ---
 
@@ -181,14 +182,14 @@ Then open `android/` in Android Studio or `ios/` in Xcode and build from there.
 
 **Server:** Node.js, Express, better-sqlite3, Multer, JWT
 
-**App:** React Native, Expo, expo-image, React Navigation, expo-av
+**App:** React Native, Expo, React Navigation, expo-av, react-native-quick-crypto, react-native-video-trim
 
 ---
 
 ## Security Notes
 
-- **End-to-end encryption:** All messages, captions, comments, and photos are encrypted with AES-256-GCM before leaving the device. The server stores only ciphertext — it never sees plaintext content.
-- **Vault key:** A single vault key is shared across all members, derived via PBKDF2-SHA256 and wrapped individually with each member's password. The server never holds the unwrapped key.
+- **End-to-end encryption:** All messages, captions, comments, photos, and videos are encrypted with AES-256-GCM before leaving the device. The server stores only ciphertext — it never sees plaintext content.
+- **Vault key:** A single vault key is shared across all members, derived via PBKDF2-SHA256 and wrapped individually with each member's password. The server never holds the unwrapped key. The key is stored in the device's secure enclave (Android Keystore / iOS Secure Enclave) so the password is only required on first login.
 - The admin panel does not expose user content. Backups are server-side only and accessible via SSH.
 - Invite links are single-use and can be revoked.
 - Passwords are hashed with PBKDF2 (100,000 iterations, SHA-256).
