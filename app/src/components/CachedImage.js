@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View } from 'react-native';
+import { View, ActivityIndicator } from 'react-native';
 import { Image } from 'expo-image';
 import * as FileSystem from 'expo-file-system/legacy';
 import { File as FSFile } from 'expo-file-system';
@@ -63,7 +63,7 @@ async function decryptAndCache(uri) {
     let base64 = null;    // string — for legacy text paths
 
     if (bytes[0] === 0x01 || bytes[0] === 0x02) {
-      // Binary path: 0x01 = AES-256-GCM, 0x02 = nacl secretbox (faster pure-JS)
+      // Binary path: 0x01 = AES-256-GCM (native OpenSSL via quick-crypto), 0x02 = legacy nacl (pure-JS, slow — delete old posts)
       // Dispatch is inside the bound fn in VaultContext — CachedImage just passes bytes through
       const decBin = getDecryptImgBinFn();
       if (!decBin) return null;
@@ -112,6 +112,7 @@ export default function CachedImage({ uri, style, resizeMode = 'cover', transpar
   useEffect(() => {
     if (!encrypted || !uri) return;
     let cancelled = false;
+    setDecryptedUri(null);
     decryptAndCache(uri)
       .then((u) => { if (!cancelled && u) setDecryptedUri(u); })
       .catch(() => {});
@@ -124,7 +125,13 @@ export default function CachedImage({ uri, style, resizeMode = 'cover', transpar
   }
 
   if (encrypted) {
-    if (!decryptedUri) return <View style={[{ backgroundColor: '#1a1a1a' }, style]} />;
+    if (!decryptedUri) {
+      return (
+        <View style={[{ backgroundColor: '#1a1a1a', alignItems: 'center', justifyContent: 'center' }, style]}>
+          <ActivityIndicator color="rgba(255,255,255,0.35)" size="small" />
+        </View>
+      );
+    }
     return (
       <Image
         source={{ uri: decryptedUri }}

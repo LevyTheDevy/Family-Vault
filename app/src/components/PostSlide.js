@@ -103,7 +103,8 @@ function PostSlide({
   };
 
   const isVideoPost = post.mediaType === 'video' || !!post.videoUrl;
-  const imageUrls = post.imageUrls || (post.imageUrl ? [post.imageUrl] : []);
+  const fullUrls = post.imageUrls || (post.imageUrl ? [post.imageUrl] : []);
+  const feedUrls = post.feedImageUrls?.length ? post.feedImageUrls : fullUrls;
   const isLiked = post.likes?.includes(me);
   const isSaved = post.savedBy?.includes(me);
   const isOwn = post.author === me;
@@ -173,7 +174,7 @@ function PostSlide({
       const raw = await AsyncStorage.getItem(OFFLINE_KEY);
       const list = raw ? JSON.parse(raw) : [];
       if (!list.find((p) => p.id === post.id)) {
-        const allUrls = imageUrls.length > 0 ? imageUrls : (post.thumbnailUrl ? [post.thumbnailUrl] : []);
+        const allUrls = fullUrls.length > 0 ? fullUrls : (post.thumbnailUrl ? [post.thumbnailUrl] : []);
         list.unshift({ id: post.id, imageUrls: allUrls, imageUrl: allUrls[0] || null, author: post.author, caption: post.caption || '', savedAt: new Date().toISOString() });
         await AsyncStorage.setItem(OFFLINE_KEY, JSON.stringify(list));
       }
@@ -201,7 +202,7 @@ function PostSlide({
       const target = convo.isDM
         ? await startDM(convo.memberNames?.find((n) => n !== me) || convo.name)
         : convo;
-      const postRef = { id: post.id, imageUrl: imageUrls[0] || '', author: post.author, caption: post.caption || '' };
+      const postRef = { id: post.id, imageUrl: feedUrls[0] || '', author: post.author, caption: post.caption || '' };
       await sendMessage(target.id, '', null, null, postRef);
       toast?.success(`Sent to ${target.name || convo.name}`);
     } catch (e) {
@@ -279,11 +280,11 @@ function PostSlide({
           </TouchableOpacity>
         </TouchableOpacity>
       ) : (
-        <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false} scrollEnabled={imageUrls.length > 1}
+        <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false} scrollEnabled={feedUrls.length > 1}
           style={StyleSheet.absoluteFillObject}
           onMomentumScrollEnd={(e) => setImageIndex(Math.round(e.nativeEvent.contentOffset.x / width))}>
-          {imageUrls.map((url, idx) => (
-            <TouchableOpacity key={idx} activeOpacity={1} onPress={() => handleImageTap(url)}
+          {feedUrls.map((url, idx) => (
+            <TouchableOpacity key={idx} activeOpacity={1} onPress={() => handleImageTap(fullUrls[idx] || url)}
               onLongPress={(e) => handleImageLongPress(e, idx)} delayLongPress={600}
               style={{ width, height: slideHeight }}>
               <CachedImage uri={url} style={styles.image} resizeMode="cover" />
@@ -303,9 +304,9 @@ function PostSlide({
         </Animated.View>
       )}
 
-      {imageUrls.length > 1 && (
+      {feedUrls.length > 1 && (
         <View style={styles.dots}>
-          {imageUrls.map((_, i) => (
+          {feedUrls.map((_, i) => (
             <View key={i} style={[styles.dot, i === imageIndex && styles.dotActive]} />
           ))}
         </View>
@@ -357,8 +358,8 @@ function PostSlide({
                 <Text style={styles.menuItemDestructive}>Delete Post</Text>
               </TouchableOpacity>
             )}
-            {imageUrls.length > 0 && (
-              <TouchableOpacity style={[styles.menuItem, { borderBottomColor: colors.border }]} onPress={() => { setShowMenu(false); setZoomUri(imageUrls[imageIndex] ?? imageUrls[0]); }}>
+            {fullUrls.length > 0 && (
+              <TouchableOpacity style={[styles.menuItem, { borderBottomColor: colors.border }]} onPress={() => { setShowMenu(false); setZoomUri(fullUrls[imageIndex] ?? fullUrls[0]); }}>
                 <Text style={[styles.menuItemText, { color: colors.text }]}>View Full Screen</Text>
               </TouchableOpacity>
             )}
