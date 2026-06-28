@@ -10,7 +10,8 @@ vault/storage2/
 vault/backups/
 
 # Local tooling config
-.claude/
+.claude/*
+!.claude/settings.json
 
 # App build artifacts
 app/.expo/
