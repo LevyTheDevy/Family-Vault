@@ -4,7 +4,7 @@ import * as SecureStore from 'expo-secure-store';
 import * as FileSystem from 'expo-file-system/legacy';
 import { setVault, setVaultCrypto, clearVaultCrypto } from '../utils/api';
 import { loadAuth } from '../utils/storage';
-import { unwrapVaultKey, encryptText, decryptText, decryptImageText, encryptImageBin, decryptImageBin } from '../utils/crypto';
+import { unwrapVaultKey, encryptText, decryptText, decryptImageText, encryptImageBin, decryptImageBin, b64ToBytes } from '../utils/crypto';
 
 const VaultContext = createContext({});
 export const useVault = () => useContext(VaultContext);
@@ -15,6 +15,7 @@ const VAULTS_KEY = 'fv_vaults';
 const ACTIVE_KEY = 'fv_active_vault';
 // SecureStore key per vault slot
 const tokenKey = (i) => `fv_tok_${i}`;
+const vaultKeyStoreKey = (i) => `fv_vk_${i}`;
 
 async function storeList(list) {
   await AsyncStorage.setItem(VAULTS_KEY, JSON.stringify(list));
@@ -42,6 +43,22 @@ async function readToken(i) {
 
 async function eraseToken(i) {
   try { await SecureStore.deleteItemAsync(tokenKey(i)); } catch {}
+}
+
+async function persistVaultKey(i, keyBytes) {
+  const b64 = btoa(String.fromCharCode.apply(null, keyBytes));
+  await SecureStore.setItemAsync(vaultKeyStoreKey(i), b64);
+}
+
+async function restoreVaultKey(i) {
+  try {
+    const b64 = await SecureStore.getItemAsync(vaultKeyStoreKey(i));
+    return b64 ? b64ToBytes(b64) : null;
+  } catch { return null; }
+}
+
+async function eraseVaultKey(i) {
+  try { await SecureStore.deleteItemAsync(vaultKeyStoreKey(i)); } catch {}
 }
 
 function purgeMediaCache() {
@@ -96,6 +113,20 @@ export function VaultProvider({ children }) {
       if (token && v) setVault(v.vaultUrl, token, v.name);
       setVaults(list);
       setActiveIndex(activeIdx);
+
+      // Restore vault key from SecureStore — skips password prompt on relaunch
+      const storedKey = await restoreVaultKey(activeIdx);
+      if (storedKey) {
+        vaultKeyRef.current = storedKey;
+        setVaultCrypto(
+          (text) => encryptText(text, storedKey),
+          (hex) => decryptText(hex, storedKey),
+          (b64) => decryptImageText(b64, storedKey),
+          (jpegBytes) => encryptImageBin(jpegBytes, storedKey),
+          (bytes) => decryptImageBin(bytes, storedKey),
+        );
+        setCryptoReady(true);
+      }
 
       // Background: refresh vault names from server, update if changed
       Promise.all(list.map(async (v) => {
@@ -156,7 +187,7 @@ export function VaultProvider({ children }) {
   }
 
   async function disconnectAll() {
-    for (let i = 0; i < vaults.length; i++) await eraseToken(i);
+    for (let i = 0; i < vaults.length; i++) { await eraseToken(i); await eraseVaultKey(i); }
     await AsyncStorage.multiRemove([VAULTS_KEY, ACTIVE_KEY]);
     setVaults([]);
     setActiveIndex(0);
@@ -170,6 +201,7 @@ export function VaultProvider({ children }) {
     if (!kdfSalt || !wrappedVaultKey || !password) return;
     const key = await unwrapVaultKey(kdfSalt, wrappedVaultKey, password);
     vaultKeyRef.current = key;
+    persistVaultKey(activeIndex, key).catch(() => {});
     setVaultCrypto(
       (text) => encryptText(text, key),          // enc: text — messages/captions
       (hex) => decryptText(hex, key),            // enc: hex decrypt
@@ -188,13 +220,15 @@ export function VaultProvider({ children }) {
   async function removeVault(index) {
     if (vaults.length <= 1) return;
     const newList = vaults.filter((_, i) => i !== index);
-    // Shift tokens down to fill the gap
+    // Shift tokens and vault keys down to fill the gap
     for (let i = index; i < vaults.length - 1; i++) {
       const t = await readToken(i + 1);
-      if (t) await writeToken(i, t);
-      else await eraseToken(i);
+      if (t) await writeToken(i, t); else await eraseToken(i);
+      const k = await restoreVaultKey(i + 1);
+      if (k) await persistVaultKey(i, k); else await eraseVaultKey(i);
     }
     await eraseToken(vaults.length - 1);
+    await eraseVaultKey(vaults.length - 1);
 
     let newActive = activeIndex;
     if (newActive === index) newActive = 0;

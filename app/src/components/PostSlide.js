@@ -507,7 +507,7 @@ const styles = StyleSheet.create({
   playBtn: { width: 64, height: 64, borderRadius: 32, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center', paddingLeft: 4 },
   durBadge: { position: 'absolute', top: 14, left: 14, backgroundColor: 'rgba(0,0,0,0.55)', borderRadius: 5, paddingHorizontal: 7, paddingVertical: 3 },
   durText: { color: '#fff', fontSize: 11, fontWeight: '600' },
-  muteBtn: { position: 'absolute', bottom: 90, left: 14, backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 16, padding: 7 },
+  muteBtn: { position: 'absolute', bottom: 160, left: 14, backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 16, padding: 7 },
   collectionSheet: { borderTopLeftRadius: 18, borderTopRightRadius: 18, paddingBottom: 36, maxHeight: '60%' },
   collectionTitle: { fontSize: 15, fontWeight: '600', textAlign: 'center', paddingVertical: 16, borderBottomWidth: 1 },
   collectionEmpty: { fontSize: 13, textAlign: 'center', padding: 28, lineHeight: 20 },
