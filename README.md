@@ -2,14 +2,22 @@
 
 A self-hosted private social media app for families. Photos, videos, stories, and group chat — stored on hardware you own, with no third-party cloud.
 
-<div align="center">
-  <img src="screenshots/Screenshot_20260628_165230_FamilyVault.jpg" width="160">
-  <img src="screenshots/Screenshot_20260628_165712_FamilyVault.jpg" width="160">
-  <img src="screenshots/Screenshot_20260628_165321_FamilyVault.jpg" width="160">
-  <img src="screenshots/Screenshot_20260628_165310_FamilyVault.jpg" width="160">
-  <img src="screenshots/Screenshot_20260628_165448_FamilyVault.jpg" width="160">
-  <img src="screenshots/Screenshot_20260628_165635_FamilyVault.jpg" width="160">
-</div>
+<table align="center">
+  <tr>
+    <td><img src="screenshots/Screenshot_20260628_165230_FamilyVault.jpg" width="150"></td>
+    <td><img src="screenshots/Screenshot_20260628_165258_FamilyVault.jpg" width="150"></td>
+    <td><img src="screenshots/Screenshot_20260628_165310_FamilyVault.jpg" width="150"></td>
+    <td><img src="screenshots/Screenshot_20260628_165321_FamilyVault.jpg" width="150"></td>
+    <td><img src="screenshots/Screenshot_20260628_165333_FamilyVault.jpg" width="150"></td>
+  </tr>
+  <tr>
+    <td><img src="screenshots/Screenshot_20260628_165448_FamilyVault.jpg" width="150"></td>
+    <td><img src="screenshots/Screenshot_20260628_165606_FamilyVault.jpg" width="150"></td>
+    <td><img src="screenshots/Screenshot_20260628_165635_FamilyVault.jpg" width="150"></td>
+    <td><img src="screenshots/Screenshot_20260628_165712_FamilyVault.jpg" width="150"></td>
+    <td><img src="screenshots/Screenshot_20260628_165405_FamilyVault.jpg" width="150"></td>
+  </tr>
+</table>
 
 ## Download the App
 
