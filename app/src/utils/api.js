@@ -1,33 +1,86 @@
+import { b64ToBytes } from './crypto';
+
 let _url = null, _token = null, _name = null, _pic = null;
 let _encryptFn = null, _decryptFn = null;
+// _decryptImgFn: legacy encb: base64-format files
+// _encryptImgBinFn / _decryptImgBinFn: new binary-format files (no hex/b64 loop on download)
+let _decryptImgFn = null;
+let _encryptImgBinFn = null, _decryptImgBinFn = null;
 
 // Set by VaultContext after key derivation — bound closures with the vault key baked in
-export const setVaultCrypto = (encFn, decFn) => { _encryptFn = encFn; _decryptFn = decFn; };
-export const clearVaultCrypto = () => { _encryptFn = null; _decryptFn = null; };
+export const setVaultCrypto = (encFn, decFn, decImgFn, encImgBinFn, decImgBinFn) => {
+  _encryptFn = encFn; _decryptFn = decFn;
+  _decryptImgFn = decImgFn;
+  _encryptImgBinFn = encImgBinFn; _decryptImgBinFn = decImgBinFn;
+};
+export const clearVaultCrypto = () => {
+  _encryptFn = null; _decryptFn = null;
+  _decryptImgFn = null;
+  _encryptImgBinFn = null; _decryptImgBinFn = null;
+};
 export const getStoredAuthHeader = () => _token ? { Authorization: `Bearer ${_token}` } : {};
 export const getDecryptFn = () => _decryptFn;
+export const getDecryptImgFn = () => _decryptImgFn;       // legacy encb: path
+export const getDecryptImgBinFn = () => _decryptImgBinFn; // new binary path
 
-// Encrypt an image URI: reads as base64, encrypts, writes to a .enc temp file.
-// Returns { uri, encrypted } — upload the uri with type application/octet-stream.
+async function encryptBytes(jpegBytes) {
+  const LegacyFS = require('expo-file-system/legacy');
+  const { File } = require('expo-file-system');
+  const combined = await _encryptImgBinFn(jpegBytes);
+  const uri = LegacyFS.cacheDirectory + 'enc_' + Date.now() + '_' + Math.random().toString(36).slice(2) + '.enc';
+  await new File(uri).write(combined);
+  return uri;
+}
+
+// Encrypt a single URI as-is (used by message/story image paths)
 export async function encryptImageUri(uri) {
-  if (!_encryptFn || !uri) {
-    console.log('[FV] encryptImageUri: no encrypt fn, uploading plain', !!_encryptFn, !!uri);
-    return { uri, encrypted: false, originalUri: uri };
-  }
+  if (!_encryptImgBinFn || !uri) return { uri, encrypted: false, originalUri: uri };
   try {
-    console.log('[FV] encryptImageUri: reading', uri.slice(-40));
-    const FileSystem = require('expo-file-system/legacy');
-    const base64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
-    console.log('[FV] encryptImageUri: read ok, base64 len', base64.length);
-    const encText = 'enc:' + await _encryptFn(base64);
-    console.log('[FV] encryptImageUri: encrypted, encText len', encText.length);
-    const tempUri = FileSystem.cacheDirectory + 'enc_up_' + Date.now() + '_' + Math.random().toString(36).slice(2) + '.enc';
-    await FileSystem.writeAsStringAsync(tempUri, encText);
-    console.log('[FV] encryptImageUri: wrote temp file', tempUri.slice(-40));
-    return { uri: tempUri, encrypted: true, originalUri: uri };
+    const LegacyFS = require('expo-file-system/legacy');
+    const base64 = await LegacyFS.readAsStringAsync(uri, { encoding: LegacyFS.EncodingType.Base64 });
+    const encUri = await encryptBytes(b64ToBytes(base64));
+    return { uri: encUri, encrypted: true, originalUri: uri };
   } catch (e) {
     console.error('[FV] encryptImageUri: FAILED', e?.message || e);
     return { uri, encrypted: false, originalUri: uri };
+  }
+}
+
+// Produce three encrypted variants of an image: full-res, feed (1080px), thumb (200×200 crop)
+async function prepareImageVariants(uri) {
+  if (!_encryptImgBinFn || !uri) return { fullUri: uri, feedUri: null, thumbUri: null, encrypted: false };
+  try {
+    const LegacyFS = require('expo-file-system/legacy');
+    const { manipulateAsync, SaveFormat } = require('expo-image-manipulator');
+    const { Image } = require('react-native');
+
+    // Get original dimensions without re-encoding
+    const { w: origW, h: origH } = await new Promise((res, rej) =>
+      Image.getSize(uri, (w, h) => res({ w, h }), rej));
+
+    // Full — encrypt original bytes unchanged
+    const origB64 = await LegacyFS.readAsStringAsync(uri, { encoding: LegacyFS.EncodingType.Base64 });
+    const fullUri = await encryptBytes(b64ToBytes(origB64));
+
+    // Feed — resize down to 1080px wide (skip if already smaller)
+    const feedActions = origW > 1080 ? [{ resize: { width: 1080 } }] : [];
+    const feedResult = await manipulateAsync(uri, feedActions, { compress: 0.85, format: SaveFormat.JPEG });
+    const feedB64 = await LegacyFS.readAsStringAsync(feedResult.uri, { encoding: LegacyFS.EncodingType.Base64 });
+    const feedUri = await encryptBytes(b64ToBytes(feedB64));
+
+    // Thumb — center-crop to square then resize to 200×200
+    const side = Math.min(origW, origH);
+    const thumbResult = await manipulateAsync(uri, [
+      { crop: { originX: Math.round((origW - side) / 2), originY: Math.round((origH - side) / 2), width: side, height: side } },
+      { resize: { width: 200, height: 200 } },
+    ], { compress: 0.8, format: SaveFormat.JPEG });
+    const thumbB64 = await LegacyFS.readAsStringAsync(thumbResult.uri, { encoding: LegacyFS.EncodingType.Base64 });
+    const thumbUri = await encryptBytes(b64ToBytes(thumbB64));
+
+    return { fullUri, feedUri, thumbUri, encrypted: true };
+  } catch (e) {
+    console.error('[FV] prepareImageVariants: FAILED', e?.message || e);
+    return { fullUri: uri, feedUri: null, thumbUri: null, encrypted: false };
   }
 }
 
@@ -72,10 +125,14 @@ const withToken = (url) => {
 
 const addTokenToPost = (p) => ({
   ...p,
-  imageUrls: (p.imageUrls || []).map(withToken),
-  imageUrl: withToken(p.imageUrl),
-  videoUrl: withToken(p.videoUrl),
-  thumbnailUrl: withToken(p.thumbnailUrl),
+  imageUrls:     (p.imageUrls     || []).map(withToken),
+  feedImageUrls: (p.feedImageUrls || []).map(withToken),
+  thumbImageUrls:(p.thumbImageUrls|| []).map(withToken),
+  imageUrl:      withToken(p.imageUrl),
+  feedImageUrl:  withToken(p.feedImageUrl),
+  thumbImageUrl: withToken(p.thumbImageUrl),
+  videoUrl:      withToken(p.videoUrl),
+  thumbnailUrl:  withToken(p.thumbnailUrl),
 });
 
 const addTokenToStory = (s) => ({ ...s, imageUrl: withToken(s.imageUrl) });
@@ -109,6 +166,7 @@ async function req(url, opts = {}) {
   try {
     res = await fetch(url, opts);
   } catch (e) {
+    if (e.name === 'AbortError') throw e;
     throw new Error('Cannot reach vault. Check Wi-Fi and that the server is running.');
   }
   let json = {};
@@ -180,18 +238,21 @@ export const addComment = async (id, text, gifUrl = null, imageX = null, imageY 
 export const deleteComment = (postId, commentId) =>
   req(`${_url}/posts/${postId}/comments/${commentId}`, { method: 'DELETE', headers: h() });
 
-// Upload one or more photos as a single post
+// Upload one or more photos as a single post — generates full/feed/thumb variants per image
 export async function uploadPhotos(imageUris, caption = '', collectionId = null) {
   const uris = Array.isArray(imageUris) ? imageUris : [imageUris];
+  const variants = await Promise.all(uris.map(prepareImageVariants));
   const fd = new FormData();
-  const encUris = await Promise.all(uris.map(encryptImageUri));
-  encUris.forEach(({ uri, encrypted, originalUri }, i) => {
-    const origExt = (originalUri || uri).split('?')[0].split('.').pop()?.toLowerCase() || 'jpg';
-    const plainName = `photo${i}.${origExt}`;
-    console.log(`[FV] uploadPhotos: photo${i} encrypted=${encrypted} name=${encrypted ? `photo${i}.enc` : plainName}`);
-    fd.append('photos', encrypted
-      ? { uri, type: 'image/jpeg', name: `photo${i}.enc` }
-      : { uri, type: 'image/jpeg', name: plainName });
+  variants.forEach(({ fullUri, feedUri, thumbUri, encrypted }, i) => {
+    const ext = uris[i].split('?')[0].split('.').pop()?.toLowerCase() || 'jpg';
+    console.log(`[FV] uploadPhotos: photo${i} encrypted=${encrypted}`);
+    if (encrypted) {
+      fd.append('photos',      { uri: fullUri,  type: 'application/octet-stream', name: `photo${i}.enc` });
+      fd.append('feedPhotos',  { uri: feedUri,  type: 'application/octet-stream', name: `photo${i}_feed.enc` });
+      fd.append('thumbPhotos', { uri: thumbUri, type: 'application/octet-stream', name: `photo${i}_thumb.enc` });
+    } else {
+      fd.append('photos', { uri: fullUri, type: 'image/jpeg', name: `photo${i}.${ext}` });
+    }
   });
   const encCaption = await encryptMsg(caption);
   if (encCaption) fd.append('caption', encCaption);

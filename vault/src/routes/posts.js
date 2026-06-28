@@ -28,9 +28,10 @@ const upload = multer({
   },
 });
 
-// Accept: photos[] (images), video (single), thumbnail (single thumb for video)
 const uploadFields = upload.fields([
   { name: 'photos', maxCount: 10 },
+  { name: 'feedPhotos', maxCount: 10 },
+  { name: 'thumbPhotos', maxCount: 10 },
   { name: 'video', maxCount: 1 },
   { name: 'thumbnail', maxCount: 1 },
 ]);
@@ -44,10 +45,21 @@ function withBase(req, post) {
   const proto = req.headers['x-forwarded-proto'] || req.protocol;
   const base = `${proto}://${req.get('host')}`;
   const filenames = post.filenames || (post.filename ? [post.filename] : []);
+  const feedFn = post.feedFilenames || [];
+  const thumbFn = post.thumbFilenames || [];
   const imageUrls = filenames.map((f) => `${base}/storage/${f}`);
+  // Fall back to full-res URL for old posts that have no variant
+  const feedImageUrls = filenames.map((f, i) => `${base}/storage/${feedFn[i] || f}`);
+  const thumbImageUrls = filenames.map((f, i) => `${base}/storage/${thumbFn[i] || f}`);
   const videoUrl = post.videoFilename ? `${base}/storage/${post.videoFilename}` : null;
   const thumbnailUrl = post.thumbnailFilename ? `${base}/storage/${post.thumbnailFilename}` : null;
-  return { ...post, imageUrls, imageUrl: imageUrls[0] || null, videoUrl, thumbnailUrl };
+  return {
+    ...post,
+    imageUrls, imageUrl: imageUrls[0] || null,
+    feedImageUrls, feedImageUrl: feedImageUrls[0] || null,
+    thumbImageUrls, thumbImageUrl: thumbImageUrls[0] || null,
+    videoUrl, thumbnailUrl,
+  };
 }
 
 router.get('/posts', auth, (req, res) => {
@@ -67,6 +79,8 @@ router.post('/posts', auth, (req, res, next) => {
   });
 }, (req, res) => {
   const photos = req.files?.photos || [];
+  const feedPhotos = req.files?.feedPhotos || [];
+  const thumbPhotos = req.files?.thumbPhotos || [];
   const videos = req.files?.video || [];
   const thumbnails = req.files?.thumbnail || [];
 
@@ -96,7 +110,9 @@ router.post('/posts', auth, (req, res, next) => {
   } else {
     // Photo post
     const filenames = photos.map((f) => f.filename);
-    const post = db.insertPost(filenames, req.member.name, caption);
+    const feedFilenames = feedPhotos.map((f) => f.filename);
+    const thumbFilenames = thumbPhotos.map((f) => f.filename);
+    const post = db.insertPost(filenames, req.member.name, caption, 'image', null, null, null, feedFilenames, thumbFilenames);
     res.json(withBase(req, post));
   }
 });

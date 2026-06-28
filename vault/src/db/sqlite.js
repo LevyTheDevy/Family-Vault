@@ -299,11 +299,17 @@ for (const colDef of [
 ]) {
   try { sql.exec(`ALTER TABLE invite_links ADD COLUMN ${colDef}`); } catch {}
 }
+for (const colDef of ['feed_filename TEXT', 'thumb_filename TEXT']) {
+  try { sql.exec(`ALTER TABLE post_images ADD COLUMN ${colDef}`); } catch {}
+}
 
 // ─── Row normalizers ─────────────────────────────────────────────────────────
 function postExtras(postId) {
+  const imageRows = sql.prepare('SELECT filename, feed_filename, thumb_filename FROM post_images WHERE post_id = ? ORDER BY position').all(postId);
   return {
-    filenames: sql.prepare('SELECT filename FROM post_images WHERE post_id = ? ORDER BY position').all(postId).map(r => r.filename),
+    filenames:     imageRows.map(r => r.filename),
+    feedFilenames: imageRows.map(r => r.feed_filename || null),
+    thumbFilenames: imageRows.map(r => r.thumb_filename || null),
     likes:     sql.prepare('SELECT member_name FROM post_likes WHERE post_id = ?').all(postId).map(r => r.member_name),
     savedBy:   sql.prepare('SELECT member_name FROM post_saves WHERE post_id = ?').all(postId).map(r => r.member_name),
     comments:  sql.prepare('SELECT * FROM comments WHERE post_id = ? ORDER BY id').all(postId).map(normalizeComment),
@@ -478,7 +484,13 @@ const db = {
     if (sql.prepare('SELECT id FROM members WHERE name = ? COLLATE NOCASE').get(name))
       throw new Error('Name already taken');
     const res = sql.prepare('INSERT INTO members (name, password_hash) VALUES (?,?)').run(name.trim(), hashPassword(password));
-    return sql.prepare('SELECT * FROM members WHERE id = ?').get(res.lastInsertRowid);
+    const member = sql.prepare('SELECT * FROM members WHERE id = ?').get(res.lastInsertRowid);
+    // Auto-join all existing group conversations so new members can participate
+    const groups = sql.prepare('SELECT id FROM conversations WHERE is_dm = 0').all();
+    for (const g of groups) {
+      sql.prepare('INSERT OR IGNORE INTO conversation_members VALUES (?,?)').run(g.id, member.name);
+    }
+    return member;
   },
 
   verifyMember(name, password) {
@@ -638,12 +650,13 @@ const db = {
     return normalizePost(sql.prepare('SELECT * FROM posts WHERE id = ?').get(id));
   },
 
-  insertPost(filenames, author, caption, mediaType = 'image', videoFilename = null, thumbnailFilename = null, durationSecs = null) {
+  insertPost(filenames, author, caption, mediaType = 'image', videoFilename = null, thumbnailFilename = null, durationSecs = null, feedFilenames = [], thumbFilenames = []) {
     const arr = Array.isArray(filenames) ? filenames : [filenames];
     const res = sql.prepare('INSERT INTO posts (author, caption, media_type, video_filename, thumbnail_filename, duration_secs) VALUES (?,?,?,?,?,?)').run(
       author, caption || '', mediaType, videoFilename || null, thumbnailFilename || null, durationSecs ?? null);
     const postId = res.lastInsertRowid;
-    arr.forEach((f, i) => sql.prepare('INSERT INTO post_images VALUES (?,?,?)').run(postId, f, i));
+    arr.forEach((f, i) => sql.prepare('INSERT INTO post_images (post_id, filename, position, feed_filename, thumb_filename) VALUES (?,?,?,?,?)').run(
+      postId, f, i, feedFilenames[i] || null, thumbFilenames[i] || null));
     return normalizePost(sql.prepare('SELECT * FROM posts WHERE id = ?').get(postId));
   },
 
@@ -651,7 +664,8 @@ const db = {
     const p = sql.prepare('SELECT * FROM posts WHERE id = ?').get(id);
     if (!p) throw new Error('Post not found');
     if (p.author !== requestingMember) throw new Error('Not your post');
-    const files = sql.prepare('SELECT filename FROM post_images WHERE post_id = ?').all(id).map(r => r.filename);
+    const imageRows = sql.prepare('SELECT filename, feed_filename, thumb_filename FROM post_images WHERE post_id = ?').all(id);
+    const files = imageRows.flatMap(r => [r.filename, r.feed_filename, r.thumb_filename].filter(Boolean));
     if (p.video_filename) files.push(p.video_filename);
     if (p.thumbnail_filename) files.push(p.thumbnail_filename);
     sql.prepare('DELETE FROM posts WHERE id = ?').run(id);

@@ -4,7 +4,7 @@ import * as SecureStore from 'expo-secure-store';
 import * as FileSystem from 'expo-file-system/legacy';
 import { setVault, setVaultCrypto, clearVaultCrypto } from '../utils/api';
 import { loadAuth } from '../utils/storage';
-import { unwrapVaultKey, encryptText, decryptText } from '../utils/crypto';
+import { unwrapVaultKey, encryptText, decryptText, decryptImageText, encryptImageBin, decryptImageBin } from '../utils/crypto';
 
 const VaultContext = createContext({});
 export const useVault = () => useContext(VaultContext);
@@ -52,6 +52,7 @@ export function VaultProvider({ children }) {
   const [vaults, setVaults] = useState([]);   // [{ vaultUrl, name, vaultName, accessKey }]
   const [activeIndex, setActiveIndex] = useState(0);
   const [ready, setReady] = useState(false);
+  const [cryptoReady, setCryptoReady] = useState(false);
   // vault_key is held in memory only — never persisted to disk
   // It's a Uint8Array(32) derived from the user's password on each login
   const vaultKeyRef = useRef(null);
@@ -170,9 +171,13 @@ export function VaultProvider({ children }) {
     const key = await unwrapVaultKey(kdfSalt, wrappedVaultKey, password);
     vaultKeyRef.current = key;
     setVaultCrypto(
-      (text) => encryptText(text, key),
-      (hex) => decryptText(hex, key),
+      (text) => encryptText(text, key),          // enc: text — messages/captions
+      (hex) => decryptText(hex, key),            // enc: hex decrypt
+      (b64) => decryptImageText(b64, key),       // encb: legacy base64 decrypt
+      (jpegBytes) => encryptImageBin(jpegBytes, key), // 0x01 AES-256-GCM via native QC
+      (bytes) => decryptImageBin(bytes, key),
     );
+    setCryptoReady(true);
   }
 
   /** Returns the current in-memory vault key (Uint8Array(32) or null) */
@@ -212,6 +217,7 @@ export function VaultProvider({ children }) {
       activeIndex,
       activeVault: vaults[activeIndex],
       ready,
+      cryptoReady,
       switchVault,
       initFirstVault,
       addVault,
