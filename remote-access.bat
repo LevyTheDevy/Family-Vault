@@ -67,12 +67,13 @@ echo  -----------------------------------------------------------
 echo  Connector is running. Back in the Cloudflare dashboard:
 echo.
 echo   - Click 'Next' (connector should now show as connected)
-echo   - Under 'Public Hostname' set:
-echo       Subdomain: vault  (or anything you like)
+echo   - Under 'Public Hostname' / 'Add route' set:
+echo       Subdomain: vault  (or anything, or blank for root domain)
 echo       Domain:    yourdomain.com
+echo       Path:      (leave empty)
 echo       Service:   HTTP
 echo       URL:       vault:3000
-echo   - Click 'Save tunnel'
+echo   - Click 'Add route'
 echo  -----------------------------------------------------------
 echo.
 echo  Once saved, your vault is reachable at https://vault.yourdomain.com
