@@ -7,7 +7,7 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import CachedImage from './CachedImage';
 import CachedVideo from './CachedVideo';
-import { Video, ResizeMode } from 'expo-av';
+import { ResizeMode } from 'expo-av';
 import { Feather, Ionicons } from '@expo/vector-icons';
 import {
   getMemberName, likePost, savePost, deletePost,

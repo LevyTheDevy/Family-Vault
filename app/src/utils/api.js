@@ -421,26 +421,6 @@ export async function uploadEncryptedVideo(encVideoUri, encThumbUri, caption = '
   return decryptPost(addTokenToPost(post));
 }
 
-// Multi-clip encrypted video post
-// clips: [{ encVideoUri, encThumbUri, durationSecs }]
-export async function uploadVideoPost(clips, caption = '', collectionId = null, onProgress = null) {
-  const fd = new FormData();
-  for (let i = 0; i < clips.length; i++) {
-    const { encVideoUri, encThumbUri, durationSecs } = clips[i];
-    fd.append('videoClips', { uri: encVideoUri, type: 'application/octet-stream', name: `clip${i}.enc` });
-    if (encThumbUri) fd.append('thumbClips', { uri: encThumbUri, type: 'application/octet-stream', name: `thumb${i}.enc` });
-    if (durationSecs != null) fd.append(`clipDuration${i}`, String(Math.round(durationSecs)));
-  }
-  const encCaption = await encryptMsg(caption);
-  if (encCaption) fd.append('caption', encCaption);
-  if (onProgress) onProgress(0.6);
-  const post = await req(`${_url}/posts`, { method: 'POST', headers: h(), body: fd });
-  markFeedDirty();
-  if (collectionId) await addToCollection(collectionId, post.id).catch(() => {});
-  if (onProgress) onProgress(1);
-  return decryptPost(addTokenToPost(post));
-}
-
 // Stories
 export const fetchStories = async () => {
   const stories = await req(`${_url}/stories`, { headers: h() });
