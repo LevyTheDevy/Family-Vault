@@ -29,31 +29,22 @@ if "%CF_TOKEN%"=="" (
     exit /b 1
 )
 
-echo.
-echo  Step 5 - Back in the Cloudflare dashboard, click 'Next'
-echo           Under 'Public hostname', set:
-echo             Subdomain: vault  ^(or anything you like^)
-echo             Domain: yourdomain.com
-echo             Service type: HTTP   URL: localhost:3000
-echo           Click Save tunnel.
-echo.
-set /p PUBLIC_URL=" What is the full public URL you just set up? (e.g. https://vault.yourdomain.com): "
-
-if "%PUBLIC_URL%"=="" (
-    echo.
-    echo  No URL entered. Exiting.
-    pause
-    exit /b 1
+:: Preserve existing PUBLIC_URL if already set
+set "EXISTING_URL="
+if exist .env (
+    for /f "tokens=1,* delims==" %%k in (.env) do (
+        if "%%k"=="PUBLIC_URL" set "EXISTING_URL=%%l"
+    )
 )
 
-:: Write .env
+:: Write .env with token so cloudflared can start
 (
-    echo PUBLIC_URL=%PUBLIC_URL%
+    echo PUBLIC_URL=%EXISTING_URL%
     echo CLOUDFLARE_TOKEN=%CF_TOKEN%
 ) > .env
 
 echo.
-echo  Starting tunnel...
+echo  Starting the Cloudflare connector...
 docker compose --profile tunnel up -d --build
 
 if %errorlevel% neq 0 (
@@ -62,6 +53,33 @@ if %errorlevel% neq 0 (
     pause
     exit /b 1
 )
+
+echo.
+echo  ---------------------------------------------------------------
+echo  The connector is running. Go back to the Cloudflare dashboard:
+echo.
+echo    - Click 'Next' (the connector should now show as connected)
+echo    - Under 'Public Hostname', set:
+echo        Subdomain: vault  (or anything you like)
+echo        Domain:    yourdomain.com
+echo        Service:   HTTP   URL: vault:3000
+echo    - Click 'Save tunnel'
+echo  ---------------------------------------------------------------
+echo.
+set /p PUBLIC_URL=" What is the full public URL you just set up? (e.g. https://vault.yourdomain.com): "
+
+if "%PUBLIC_URL%"=="" (
+    echo.
+    echo  No URL entered — tunnel is running but PUBLIC_URL is not set.
+    pause
+    exit /b 1
+)
+
+:: Update .env with final values
+(
+    echo PUBLIC_URL=%PUBLIC_URL%
+    echo CLOUDFLARE_TOKEN=%CF_TOKEN%
+) > .env
 
 echo.
 echo  Done! Your vault is now accessible at: %PUBLIC_URL%

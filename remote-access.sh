@@ -28,39 +28,54 @@ if [ -z "$CF_TOKEN" ]; then
     exit 1
 fi
 
+# Prefer 'docker compose' (V2); fall back to 'docker-compose' (V1)
+if docker compose version >/dev/null 2>&1; then
+    COMPOSE="docker compose"
+elif docker-compose version >/dev/null 2>&1; then
+    COMPOSE="docker-compose"
+else
+    echo " Docker Compose not found. Please install Docker Desktop or the docker-compose-plugin."
+    exit 1
+fi
+
+# Write token to .env so cloudflared can start
+# Preserve PUBLIC_URL if already set
+EXISTING_URL=""
+if [ -f .env ]; then
+    EXISTING_URL=$(grep "^PUBLIC_URL=" .env | cut -d= -f2-)
+fi
+printf "PUBLIC_URL=%s\nCLOUDFLARE_TOKEN=%s\n" "$EXISTING_URL" "$CF_TOKEN" > .env
+
 echo ""
-echo " Step 5 — Back in the Cloudflare dashboard, click 'Next'"
-echo "          Under 'Public hostname', set:"
-echo "            Subdomain: vault  (or anything you like)"
-echo "            Domain: yourdomain.com"
-echo "            Service type: HTTP   URL: localhost:3000"
-echo "          Click Save tunnel."
+echo " Starting the Cloudflare connector..."
+$COMPOSE --profile tunnel up -d --build
+
+echo ""
+echo " ---------------------------------------------------------------"
+echo " The connector is running. Go back to the Cloudflare dashboard:"
+echo ""
+echo "   - Click 'Next' (the connector should now show as connected)"
+echo "   - Under 'Public Hostname', set:"
+echo "       Subdomain: vault  (or anything you like)"
+echo "       Domain:    yourdomain.com"
+echo "       Service:   HTTP   URL: vault:3000"
+echo "   - Click 'Save tunnel'"
+echo " ---------------------------------------------------------------"
 echo ""
 printf " What is the full public URL you just set up? (e.g. https://vault.yourdomain.com): "
 read -r PUBLIC_URL
 
 if [ -z "$PUBLIC_URL" ]; then
     echo ""
-    echo " No URL entered. Exiting."
+    echo " No URL entered — tunnel is running but PUBLIC_URL is not set."
     exit 1
 fi
 
 # Strip trailing slash
 PUBLIC_URL=$(echo "$PUBLIC_URL" | sed 's:/*$::')
 
-# Write .env
+# Update .env with final PUBLIC_URL
 printf "PUBLIC_URL=%s\nCLOUDFLARE_TOKEN=%s\n" "$PUBLIC_URL" "$CF_TOKEN" > .env
-
-echo ""
-echo " Starting tunnel..."
-
-if docker compose version >/dev/null 2>&1; then
-    COMPOSE="docker compose"
-else
-    COMPOSE="docker-compose"
-fi
-
-$COMPOSE --profile tunnel up -d --build
 
 echo ""
 echo " Done! Your vault is now accessible at: $PUBLIC_URL"
