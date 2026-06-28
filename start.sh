@@ -54,6 +54,7 @@ printf "PUBLIC_URL=http://%s:3000\n" "$LAN_IP" > .env
 
 # Start (or rebuild) the server
 echo " Starting FamilyVault..."
+echo " (First run downloads and builds the server — this takes a few minutes)"
 $COMPOSE up -d --build
 
 echo ""

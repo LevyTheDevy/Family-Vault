@@ -41,6 +41,7 @@ echo PUBLIC_URL=http://%LAN_IP%:3000> .env
 
 :: Start (or rebuild) the server
 echo  Starting FamilyVault...
+echo  (First run downloads and builds the server - this takes a few minutes)
 docker compose up -d --build
 if %errorlevel% neq 0 (
     echo.
