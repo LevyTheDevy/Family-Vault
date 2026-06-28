@@ -1,3 +1,4 @@
+import 'expo-dev-client';
 import { install } from 'react-native-quick-crypto';
 install();
 
