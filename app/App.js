@@ -118,10 +118,15 @@ function MainTabs() {
   const insets = useSafeAreaInsets();
   const { colors, bgImageUri, isLight } = useTheme();
   const { totalUnread } = useUnread();
+  const { activeVault } = useVault();
   const tabBarHeight = 58 + insets.bottom;
+
+  // When vault switches, key changes and all tab screens remount with fresh data
+  const vaultKey = activeVault ? `${activeVault.vaultUrl}__${activeVault.name}` : 'none';
 
   return (
     <Tab.Navigator
+      key={vaultKey}
       screenOptions={({ route }) => ({
         headerShown: false,
         tabBarStyle: {
@@ -181,12 +186,14 @@ function MainTabs() {
 function AppInner() {
   const [initialRoute, setInitialRoute] = useState(null);
   const { colors, bgImageUri, isLight } = useTheme();
-  const { vaults, ready } = useVault();
+  const { vaults, ready, cryptoReady } = useVault();
 
   useEffect(() => {
     if (!ready) return;
     FileSystem.deleteAsync(FileSystem.cacheDirectory + 'fv/', { idempotent: true }).catch(() => {});
-    setInitialRoute(vaults.length > 0 ? 'Auth' : 'Scan');
+    if (vaults.length === 0) setInitialRoute('Scan');
+    else if (cryptoReady) setInitialRoute('Main');
+    else setInitialRoute('Auth');
   }, [ready]);
 
   if (!initialRoute) {

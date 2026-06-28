@@ -75,7 +75,7 @@ export function VaultProvider({ children }) {
   const vaultKeyRef = useRef(null);
 
   useEffect(() => {
-    initVaults().then(() => setReady(true));
+    initVaults();
   }, []);
 
   async function fetchVaultName(vaultUrl) {
@@ -107,7 +107,12 @@ export function VaultProvider({ children }) {
       if (activeIdx >= list.length) activeIdx = 0;
     }
 
-    if (list && list.length > 0) {
+    if (!list || list.length === 0) {
+      setReady(true);
+      return;
+    }
+
+    {
       const token = await readToken(activeIdx);
       const v = list[activeIdx];
       if (token && v) setVault(v.vaultUrl, token, v.name);
@@ -127,6 +132,8 @@ export function VaultProvider({ children }) {
         );
         setCryptoReady(true);
       }
+
+      setReady(true);
 
       // Background: refresh vault names from server, update if changed
       Promise.all(list.map(async (v) => {
