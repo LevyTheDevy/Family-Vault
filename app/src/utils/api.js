@@ -567,7 +567,11 @@ export const removeConversationMember = (id, memberName) =>
 export const fetchMessages = async (conversationId) => {
   const msgs = await req(`${_url}/conversations/${conversationId}/messages`, { headers: h() });
   const withTokens = msgs.map(addTokenToMessage);
-  return Promise.all(withTokens.map(async (m) => ({ ...m, text: await decryptMsg(m.text) })));
+  return Promise.all(withTokens.map(async (m) => ({
+    ...m,
+    text: await decryptMsg(m.text),
+    replyPreview: m.replyPreview ? { ...m.replyPreview, text: await decryptMsg(m.replyPreview.text) } : null,
+  })));
 };
 
 export const sendMessage = async (conversationId, text, gifUrl = null, replyToId = null, postRef = null) => {
