@@ -766,7 +766,7 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
             <div>
               <div class="field-label">Server URL</div>
               <div class="input-row">
-                <input id="server-url-input" class="mono-input" placeholder="http://192.168.1.165:3000">
+                <input id="server-url-input" class="mono-input" placeholder="http://192.168.1.100:3000">
                 <button class="btn btn-sm" onclick="saveServerUrl(this)">Save</button>
               </div>
               <div class="hint">Set to your Cloudflare domain (https://vault.yourdomain.com) for remote access, or your Pi's LAN IP for local only.</div>
