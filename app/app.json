@@ -28,7 +28,7 @@
       ]
     },
     "ios": {
-      "bundleIdentifier": "com.familyvault.app"
+      "bundleIdentifier": "com.famvault.app"
     },
     "plugins": [
       "expo-camera",
