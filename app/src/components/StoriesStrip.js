@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, Animated } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, StyleSheet, Animated, ActivityIndicator, Image } from 'react-native';
+import { Feather } from '@expo/vector-icons';
 import { getMemberName, getAvatarUrl } from '../utils/api';
 import { useTheme } from '../context/ThemeContext';
 import Avatar from './Avatar';
@@ -39,7 +40,7 @@ function GlowRing({ active, size = 58, colors, children }) {
   );
 }
 
-export default function StoriesStrip({ stories, onAdd, onView }) {
+export default function StoriesStrip({ stories, onAdd, onView, pendingStories = [], onPendingPress }) {
   const { colors } = useTheme();
   const me = getMemberName();
 
@@ -54,11 +55,13 @@ export default function StoriesStrip({ stories, onAdd, onView }) {
   });
   items.sort((a, b) => (b.isMe ? 1 : 0) - (a.isMe ? 1 : 0));
 
+  const pendingItems = pendingStories.map((p) => ({ isPending: true, pending: p }));
+
   return (
     <View style={[styles.container, { backgroundColor: colors.surface, borderBottomColor: colors.border }]}>
       <FlatList
-        data={[{ isAdd: true }, ...items]}
-        keyExtractor={(item) => item.isAdd ? '__add__' : item.author}
+        data={[{ isAdd: true }, ...pendingItems, ...items]}
+        keyExtractor={(item) => item.isAdd ? '__add__' : item.isPending ? item.pending.id : item.author}
         horizontal
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.list}
@@ -70,6 +73,26 @@ export default function StoriesStrip({ stories, onAdd, onView }) {
                   <Text style={[styles.addPlus, { color: colors.text }]}>+</Text>
                 </View>
                 <Text style={[styles.label, { color: colors.textSub }]}>Your daily</Text>
+              </TouchableOpacity>
+            );
+          }
+          if (item.isPending) {
+            const failed = item.pending.status === 'failed';
+            return (
+              <TouchableOpacity style={styles.item} onPress={() => onPendingPress?.(item.pending)} activeOpacity={failed ? 0.7 : 1}>
+                <View style={[styles.pendingCircle, { backgroundColor: colors.card, borderColor: failed ? '#e53935' : colors.accent }]}>
+                  {item.pending.payload?.previewUri && (
+                    <Image source={{ uri: item.pending.payload.previewUri }} style={styles.pendingThumb} />
+                  )}
+                  <View style={styles.pendingOverlay}>
+                    {failed
+                      ? <Feather name="alert-triangle" size={18} color="#ff6b6b" />
+                      : <ActivityIndicator size="small" color="#fff" />}
+                  </View>
+                </View>
+                <Text style={[styles.label, { color: failed ? '#e53935' : colors.textSub }]}>
+                  {failed ? 'Tap to retry' : 'Posting…'}
+                </Text>
               </TouchableOpacity>
             );
           }
@@ -98,6 +121,12 @@ const styles = StyleSheet.create({
     borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center',
   },
   addPlus: { fontSize: 26, lineHeight: 30, fontWeight: '200' },
+  pendingCircle: {
+    width: 58, height: 58, borderRadius: 29, borderWidth: 2,
+    alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
+  },
+  pendingThumb: { ...StyleSheet.absoluteFillObject, opacity: 0.55 },
+  pendingOverlay: { alignItems: 'center', justifyContent: 'center' },
   ring: { alignItems: 'center', justifyContent: 'center' },
   label: { fontSize: 10, textAlign: 'center', maxWidth: 64, fontWeight: '500' },
 });

@@ -25,7 +25,8 @@ import StoryCreateScreen from './src/screens/StoryCreateScreen';
 import * as FileSystem from 'expo-file-system/legacy';
 import { ThemeProvider, useTheme } from './src/context/ThemeContext';
 import { UnreadProvider, useUnread } from './src/context/UnreadContext';
-import { ToastProvider } from './src/context/ToastContext';
+import { ToastProvider, useToast } from './src/context/ToastContext';
+import { onUploadComplete, onUploadFailed, resumePendingUploads } from './src/utils/uploadQueue';
 import { VaultProvider, useVault } from './src/context/VaultContext';
 import { VaultSwitcherButton, NotificationBell } from './src/components/VaultSwitcher';
 import { pruneDecryptedCache } from './src/components/CachedImage';
@@ -191,6 +192,7 @@ function AppInner() {
   const [initialRoute, setInitialRoute] = useState(null);
   const { colors, bgImageUri, isLight } = useTheme();
   const { vaults, ready, cryptoReady, activeIndex } = useVault();
+  const toast = useToast();
 
   useEffect(() => {
     if (!ready) return;
@@ -208,6 +210,25 @@ function AppInner() {
   }, [ready, cryptoReady, activeIndex]);
 
   useEffect(() => listenForPushTaps(), []);
+
+  // Background upload queue: global toasts + resume interrupted uploads once
+  // the vault key is available (encryption needs it)
+  useEffect(() => {
+    const unsubDone = onUploadComplete((item) => {
+      toast?.success(item.kind === 'story' ? 'Daily posted' : 'Posted to vault',
+        { imageUri: item.payload?.previewUri });
+    });
+    const unsubFail = onUploadFailed((item) => {
+      toast?.error(item.kind === 'story'
+        ? "Daily didn't upload — tap it in the feed to retry"
+        : "Post didn't upload — open the feed to retry");
+    });
+    return () => { unsubDone(); unsubFail(); };
+  }, []);
+
+  useEffect(() => {
+    if (ready && cryptoReady) resumePendingUploads();
+  }, [ready, cryptoReady]);
 
   if (!initialRoute) {
     return (

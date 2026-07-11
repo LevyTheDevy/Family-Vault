@@ -9,9 +9,9 @@ import * as ImageManipulator from 'expo-image-manipulator';
 import { Video, ResizeMode } from 'expo-av';
 import { Feather } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import VideoTrim, { showEditor, getFrameAt, deleteFile as deleteTrimFile } from 'react-native-video-trim';
-import { uploadPhotos, uploadEncryptedVideo, fetchCollections, getEncryptImgBinFn } from '../utils/api';
-import { encryptLocalVideo, cleanupTempFiles } from '../utils/videoProcessing';
+import VideoTrim, { showEditor } from 'react-native-video-trim';
+import { fetchCollections } from '../utils/api';
+import { enqueuePhotos, enqueueVideo } from '../utils/uploadQueue';
 import { useTheme } from '../context/ThemeContext';
 import { useToast } from '../context/ToastContext';
 
@@ -355,60 +355,30 @@ function CaptionStep({ assets, editedAssets, filterIdx, trimmedVideo, onBack, on
   const [collections, setCollections] = useState([]);
   const [selectedCollection, setSelectedCollection] = useState(null);
   const toast = useToast();
-  const [uploading, setUploading] = useState(false);
-  const [progress, setProgress] = useState('');
-  const [uploadPct, setUploadPct] = useState(0);
   const isVideo = assets[0]?.mediaType === 'video';
 
   useEffect(() => { fetchCollections().then(setCollections).catch(() => {}); }, []);
 
-  const handlePost = async () => {
-    setUploading(true);
-    setUploadPct(0);
-    let encVideoUri = null, encThumbUri = null;
-    try {
-      if (isVideo && trimmedVideo) {
-        const encBinFn = getEncryptImgBinFn();
-        if (!encBinFn) throw new Error('Vault not unlocked — please log in again');
-
-        setProgress('Extracting thumbnail…');
-        let thumbPath = null;
-        try {
-          const frame = await getFrameAt(trimmedVideo.uri, { time: 0, format: 'jpeg', quality: 80 });
-          thumbPath = frame.outputPath;
-        } catch {}
-
-        setProgress('Encrypting…');
-        encVideoUri = await encryptLocalVideo(trimmedVideo.uri, encBinFn);
-        if (thumbPath) encThumbUri = await encryptLocalVideo(thumbPath, encBinFn);
-        setUploadPct(50);
-
-        setProgress('Uploading…');
-        await uploadEncryptedVideo(
-          encVideoUri, encThumbUri,
-          caption.trim(),
-          trimmedVideo.durationMs ? Math.round(trimmedVideo.durationMs / 1000) : null,
-          selectedCollection,
-          (pct) => setUploadPct(50 + Math.round(pct * 50)),
-        );
-
-        deleteTrimFile(trimmedVideo.uri).catch(() => {});
-      } else {
-        setProgress('Uploading…');
-        const uris = finalAssets.map((a) => a.uri);
-        await uploadPhotos(uris, caption.trim(), selectedCollection);
-        setUploadPct(100);
-      }
-      toast?.success('Posted to vault!');
-      onDone();
-    } catch (e) {
-      Alert.alert('Upload failed', e.message || 'Could not reach the vault.');
-    } finally {
-      cleanupTempFiles([encVideoUri, encThumbUri]).catch(() => {});
-      setUploading(false);
-      setProgress('');
-      setUploadPct(0);
+  // Optimistic posting: hand the work to the background upload queue and
+  // return to the feed immediately — the pending slide there shows progress
+  // and surfaces retry/discard if the upload fails.
+  const handlePost = () => {
+    if (isVideo && trimmedVideo) {
+      enqueueVideo({
+        videoUri: trimmedVideo.uri,
+        durationMs: trimmedVideo.durationMs,
+        caption: caption.trim(),
+        collectionId: selectedCollection,
+      });
+    } else {
+      enqueuePhotos({
+        uris: finalAssets.map((a) => a.uri),
+        caption: caption.trim(),
+        collectionId: selectedCollection,
+      });
     }
+    toast?.info('Posting in the background…');
+    onDone();
   };
 
   return (
@@ -468,17 +438,14 @@ function CaptionStep({ assets, editedAssets, filterIdx, trimmedVideo, onBack, on
       )}
 
       <View style={[s.captionFooter, { paddingBottom: insets.bottom + 8 }]}>
-        <TouchableOpacity onPress={onBack} style={s.backBtn} disabled={uploading}>
-          <Feather name="arrow-left" size={20} color={uploading ? colors.textSub : colors.text} />
+        <TouchableOpacity onPress={onBack} style={s.backBtn}>
+          <Feather name="arrow-left" size={20} color={colors.text} />
         </TouchableOpacity>
         <TouchableOpacity
-          style={[s.postBtn, { backgroundColor: colors.accent }, uploading && s.postBtnDisabled]}
+          style={[s.postBtn, { backgroundColor: colors.accent }]}
           onPress={handlePost}
-          disabled={uploading}
         >
-          {uploading
-            ? <><ActivityIndicator color={colors.accentText} size="small" /><Text style={[s.postBtnText, { color: colors.accentText }]}>{progress}{uploadPct > 0 ? ` ${uploadPct}%` : ''}</Text></>
-            : <Text style={[s.postBtnText, { color: colors.accentText }]}>Share to Vault</Text>}
+          <Text style={[s.postBtnText, { color: colors.accentText }]}>Share to Vault</Text>
         </TouchableOpacity>
       </View>
     </ScrollView>

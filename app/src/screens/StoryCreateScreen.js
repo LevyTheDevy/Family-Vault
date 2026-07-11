@@ -1,16 +1,16 @@
 import React, { useState, useRef } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, Image, Alert,
-  ActivityIndicator, TextInput, ScrollView, KeyboardAvoidingView, Platform,
+  TextInput, ScrollView, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import { Video, ResizeMode } from 'expo-av';
 import { Feather } from '@expo/vector-icons';
-import VideoTrim, { showEditor, getFrameAt, deleteFile as deleteTrimFile } from 'react-native-video-trim';
-import { uploadStory, getEncryptImgBinFn } from '../utils/api';
-import { encryptLocalVideo, cleanupTempFiles } from '../utils/videoProcessing';
+import VideoTrim, { showEditor } from 'react-native-video-trim';
+import { enqueueStory } from '../utils/uploadQueue';
 import { useTheme } from '../context/ThemeContext';
+import { useToast } from '../context/ToastContext';
 
 const DURATIONS = [
   { label: '1 hour', value: 1 },
@@ -25,12 +25,11 @@ const STORY_MAX_DURATION_MS = 30000; // 30s for story video
 
 export default function StoryCreateScreen({ navigation }) {
   const { colors } = useTheme();
+  const toast = useToast();
   const [image, setImage] = useState(null);
   const [trimmedVideo, setTrimmedVideo] = useState(null); // { uri, durationMs }
   const [duration, setDuration] = useState(24);
   const [caption, setCaption] = useState('');
-  const [uploading, setUploading] = useState(false);
-  const [progress, setProgress] = useState('');
   const trimSubs = useRef([]);
   const insets = useSafeAreaInsets();
 
@@ -84,46 +83,23 @@ export default function StoryCreateScreen({ navigation }) {
     if (!r.canceled) openTrimEditor(r.assets[0]);
   };
 
-  const handlePost = async () => {
-    setUploading(true);
-    let encVideoUri = null, encThumbUri = null;
-    try {
-      if (trimmedVideo) {
-        const encBinFn = getEncryptImgBinFn();
-        if (!encBinFn) throw new Error('Vault not unlocked');
-
-        setProgress('Extracting thumbnail…');
-        let thumbPath = null;
-        try {
-          const frame = await getFrameAt(trimmedVideo.uri, { time: 0, format: 'jpeg', quality: 80 });
-          thumbPath = frame.outputPath;
-        } catch {}
-
-        setProgress('Encrypting…');
-        encVideoUri = await encryptLocalVideo(trimmedVideo.uri, encBinFn);
-        if (thumbPath) encThumbUri = await encryptLocalVideo(thumbPath, encBinFn);
-
-        setProgress('Uploading…');
-        const durationSecs = trimmedVideo.durationMs ? Math.round(trimmedVideo.durationMs / 1000) : null;
-        await uploadStory(null, duration, caption.trim(), [{
-          encVideoUri, encThumbUri, durationSecs,
-        }]);
-
-        deleteTrimFile(trimmedVideo.uri).catch(() => {});
-      } else if (image) {
-        setProgress('Uploading…');
-        await uploadStory(image, duration, caption.trim());
-      } else {
-        throw new Error('No media selected');
-      }
-      navigation.goBack();
-    } catch (e) {
-      Alert.alert('Failed', e.message || 'Could not post daily.');
-    } finally {
-      cleanupTempFiles([encVideoUri, encThumbUri]).catch(() => {});
-      setUploading(false);
-      setProgress('');
+  // Optimistic posting: the background queue encrypts + uploads; the stories
+  // strip shows a "Posting…" ring (or tap-to-retry on failure)
+  const handlePost = () => {
+    if (trimmedVideo) {
+      enqueueStory({
+        videoUri: trimmedVideo.uri,
+        durationMs: trimmedVideo.durationMs,
+        durationHours: duration,
+        caption: caption.trim(),
+      });
+    } else if (image) {
+      enqueueStory({ imageUri: image, durationHours: duration, caption: caption.trim() });
+    } else {
+      return;
     }
+    toast?.info('Posting your daily…');
+    navigation.goBack();
   };
 
   const hasMedia = !!(image || trimmedVideo);
@@ -227,13 +203,11 @@ export default function StoryCreateScreen({ navigation }) {
 
         <View style={[styles.footer, { borderTopColor: colors.border, paddingBottom: insets.bottom + 16 }]}>
           <TouchableOpacity
-            style={[styles.postBtn, { backgroundColor: colors.accent }, (!hasMedia || uploading) && styles.postBtnDisabled]}
+            style={[styles.postBtn, { backgroundColor: colors.accent }, !hasMedia && styles.postBtnDisabled]}
             onPress={handlePost}
-            disabled={!hasMedia || uploading}
+            disabled={!hasMedia}
           >
-            {uploading
-              ? <><ActivityIndicator color={colors.accentText} /><Text style={[styles.postBtnText, { color: colors.accentText, marginLeft: 8 }]}>{progress}</Text></>
-              : <Text style={[styles.postBtnText, { color: colors.accentText }]}>Post Daily</Text>}
+            <Text style={[styles.postBtnText, { color: colors.accentText }]}>Post Daily</Text>
           </TouchableOpacity>
         </View>
       </ScrollView>

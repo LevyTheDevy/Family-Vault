@@ -1,10 +1,12 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { View, FlatList, StyleSheet, RefreshControl, Text, ActivityIndicator } from 'react-native';
+import { View, FlatList, StyleSheet, RefreshControl, Text, ActivityIndicator, Alert } from 'react-native';
 import { useFocusEffect, useScrollToTop } from '@react-navigation/native';
 import PostSlide from '../components/PostSlide';
+import PendingPostSlide from '../components/PendingPostSlide';
 import StoriesStrip from '../components/StoriesStrip';
 import CommentsSheet from '../components/CommentsSheet';
 import { fetchPosts, fetchStories, getMemberName, consumeFeedDirty } from '../utils/api';
+import { subscribeQueue, onUploadComplete, retryUpload, discardUpload } from '../utils/uploadQueue';
 import { useTheme } from '../context/ThemeContext';
 import { useVault } from '../context/VaultContext';
 
@@ -16,6 +18,7 @@ export default function FeedScreen({ navigation }) {
   const { activeIndex } = useVault();
   const me = getMemberName();
   const [posts, setPosts] = useState([]);
+  const [pendingUploads, setPendingUploads] = useState([]);
   const [stories, setStories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -58,6 +61,36 @@ export default function FeedScreen({ navigation }) {
     ]);
     lastFetchRef.current = Date.now();
   };
+
+  // Background upload queue: pending items render as slides at the top of the
+  // feed; when one finishes, the real post slots in without a refetch.
+  useEffect(() => {
+    const unsubList = subscribeQueue(setPendingUploads);
+    const unsubDone = onUploadComplete((item, result) => {
+      if (item.kind === 'story') {
+        fetchStories().catch(() => []).then((s) =>
+          setStories(s.filter((st) => !st.expiresAt || new Date(st.expiresAt) > new Date())));
+      } else if (result) {
+        setPosts((prev) => [result, ...prev.filter((p) => p.id !== result.id)]);
+        offsetRef.current += 1;
+        setActivePostId(result.id);
+        listRef.current?.scrollToOffset({ offset: 0, animated: false });
+      }
+    });
+    return () => { unsubList(); unsubDone(); };
+  }, []);
+
+  const pendingPosts = pendingUploads.filter((i) => i.kind !== 'story');
+  const pendingStories = pendingUploads.filter((i) => i.kind === 'story');
+
+  const handlePendingStoryPress = useCallback((item) => {
+    if (item.status !== 'failed') return;
+    Alert.alert("Daily didn't upload", item.error || 'Upload failed', [
+      { text: 'Discard', style: 'destructive', onPress: () => discardUpload(item.id) },
+      { text: 'Retry', onPress: () => retryUpload(item.id) },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  }, []);
 
   const onEndReached = useCallback(() => {
     if (loadingMoreRef.current || !hasMoreRef.current) return;
@@ -143,20 +176,38 @@ export default function FeedScreen({ navigation }) {
     setActivePostId(viewableItems[0]?.item?.id ?? null);
   }).current;
 
-  const renderItem = useCallback(({ item }) => (
-    <PostSlide
-      post={item}
-      height={listHeight}
-      isActive={item.id === activePostId}
-      onDeleted={handleDeleted}
-      onCommentPress={setCommentPost}
-    />
-  ), [listHeight, activePostId, handleDeleted]);
+  const renderItem = useCallback(({ item }) => {
+    if (item.__pending) {
+      return (
+        <PendingPostSlide
+          item={item}
+          height={listHeight}
+          onRetry={() => retryUpload(item.id)}
+          onDiscard={() => discardUpload(item.id)}
+        />
+      );
+    }
+    return (
+      <PostSlide
+        post={item}
+        height={listHeight}
+        isActive={item.id === activePostId}
+        onDeleted={handleDeleted}
+        onCommentPress={setCommentPost}
+      />
+    );
+  }, [listHeight, activePostId, handleDeleted]);
+
+  const feedData = pendingPosts.length
+    ? [...pendingPosts.map((i) => ({ ...i, __pending: true })), ...posts]
+    : posts;
 
   return (
     <View style={[styles.container, { backgroundColor: colors.bg }]}>
       <StoriesStrip
         stories={stories}
+        pendingStories={pendingStories}
+        onPendingPress={handlePendingStoryPress}
         onAdd={() => navigation.navigate('StoryCreate')}
         onView={(storyList) => {
           navigation.navigate('StoryView', { stories: storyList });
@@ -169,9 +220,9 @@ export default function FeedScreen({ navigation }) {
         }}
       />
 
-      {loading ? (
+      {loading && feedData.length === 0 ? (
         <View style={styles.center}><ActivityIndicator color={colors.text} /></View>
-      ) : posts.length === 0 ? (
+      ) : feedData.length === 0 ? (
         <View style={styles.center}>
           <Text style={[styles.emptyText, { color: colors.text }]}>No posts yet.</Text>
           <Text style={[styles.emptySub, { color: colors.textSub }]}>Tap + to share a photo.</Text>
@@ -180,8 +231,8 @@ export default function FeedScreen({ navigation }) {
         <FlatList
           ref={listRef}
           style={styles.list}
-          data={posts}
-          keyExtractor={(p) => String(p.id)}
+          data={feedData}
+          keyExtractor={(p) => (p.__pending ? p.id : String(p.id))}
           renderItem={renderItem}
           pagingEnabled
           showsVerticalScrollIndicator={false}

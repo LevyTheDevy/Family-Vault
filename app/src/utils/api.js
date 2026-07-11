@@ -38,13 +38,28 @@ async function encryptBytes(jpegBytes) {
   return uri;
 }
 
+// Read a local file's raw bytes. fetch() on a file:// URI returns bytes
+// natively (same trick videoProcessing uses) — no base64 string through the
+// JS bridge and no charCodeAt decode loop, which were most of the CPU cost
+// of preparing an upload. Falls back to the legacy base64 path if the URI
+// scheme isn't fetchable.
+async function readLocalBytes(uri) {
+  try {
+    const localUri = uri.startsWith('file://') || uri.startsWith('content://') ? uri : `file://${uri}`;
+    const res = await fetch(localUri);
+    return new Uint8Array(await res.arrayBuffer());
+  } catch {
+    const LegacyFS = require('expo-file-system/legacy');
+    const b64 = await LegacyFS.readAsStringAsync(uri, { encoding: LegacyFS.EncodingType.Base64 });
+    return b64ToBytes(b64);
+  }
+}
+
 // Encrypt a single URI as-is (used by message/story image paths)
 export async function encryptImageUri(uri) {
   if (!_encryptImgBinFn || !uri) return { uri, encrypted: false, originalUri: uri };
   try {
-    const LegacyFS = require('expo-file-system/legacy');
-    const base64 = await LegacyFS.readAsStringAsync(uri, { encoding: LegacyFS.EncodingType.Base64 });
-    const encUri = await encryptBytes(b64ToBytes(base64));
+    const encUri = await encryptBytes(await readLocalBytes(uri));
     return { uri: encUri, encrypted: true, originalUri: uri };
   } catch (e) {
     console.error('[FV] encryptImageUri: FAILED', e?.message || e);
@@ -56,7 +71,6 @@ export async function encryptImageUri(uri) {
 async function prepareImageVariants(uri) {
   if (!_encryptImgBinFn || !uri) return { fullUri: uri, feedUri: null, thumbUri: null, encrypted: false };
   try {
-    const LegacyFS = require('expo-file-system/legacy');
     const { manipulateAsync, SaveFormat } = require('expo-image-manipulator');
     const { Image } = require('react-native');
 
@@ -65,14 +79,12 @@ async function prepareImageVariants(uri) {
       Image.getSize(uri, (w, h) => res({ w, h }), rej));
 
     // Full — encrypt original bytes unchanged
-    const origB64 = await LegacyFS.readAsStringAsync(uri, { encoding: LegacyFS.EncodingType.Base64 });
-    const fullUri = await encryptBytes(b64ToBytes(origB64));
+    const fullUri = await encryptBytes(await readLocalBytes(uri));
 
     // Feed — resize down to 1080px wide (skip if already smaller)
     const feedActions = origW > 1080 ? [{ resize: { width: 1080 } }] : [];
     const feedResult = await manipulateAsync(uri, feedActions, { compress: 0.85, format: SaveFormat.JPEG });
-    const feedB64 = await LegacyFS.readAsStringAsync(feedResult.uri, { encoding: LegacyFS.EncodingType.Base64 });
-    const feedUri = await encryptBytes(b64ToBytes(feedB64));
+    const feedUri = await encryptBytes(await readLocalBytes(feedResult.uri));
 
     // Thumb — center-crop to square then resize to 200×200
     const side = Math.min(origW, origH);
@@ -80,12 +92,15 @@ async function prepareImageVariants(uri) {
       { crop: { originX: Math.round((origW - side) / 2), originY: Math.round((origH - side) / 2), width: side, height: side } },
       { resize: { width: 200, height: 200 } },
     ], { compress: 0.8, format: SaveFormat.JPEG });
-    const thumbB64 = await LegacyFS.readAsStringAsync(thumbResult.uri, { encoding: LegacyFS.EncodingType.Base64 });
-    const thumbUri = await encryptBytes(b64ToBytes(thumbB64));
+    const thumbUri = await encryptBytes(await readLocalBytes(thumbResult.uri));
 
     return { fullUri, feedUri, thumbUri, encrypted: true };
   } catch (e) {
     console.error('[FV] prepareImageVariants: FAILED', e?.message || e);
+    // On an encrypted vault, never fall back to uploading plaintext — fail the
+    // post instead; the queue shows Retry. (Unencrypted return only happens
+    // when the vault has no crypto at all, via the guard at the top.)
+    if (_encryptImgBinFn) throw new Error('Could not prepare the photo. Try again.');
     return { fullUri: uri, feedUri: null, thumbUri: null, encrypted: false };
   }
 }
@@ -226,6 +241,30 @@ async function req(url, opts = {}) {
   return json;
 }
 
+// Multipart upload with real progress. RN's fetch can't report upload
+// progress, but its XMLHttpRequest can — used whenever a caller wants a
+// percentage. onProgress receives 0..1.
+function uploadWithProgress(url, fd, onProgress, timeoutMs = UPLOAD_TIMEOUT_MS) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', url);
+    xhr.timeout = timeoutMs;
+    xhr.setRequestHeader('Authorization', `Bearer ${_token}`);
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable && e.total > 0) { try { onProgress?.(e.loaded / e.total); } catch {} }
+    };
+    xhr.onload = () => {
+      let json = {};
+      try { json = JSON.parse(xhr.responseText); } catch {}
+      if (xhr.status >= 200 && xhr.status < 300) resolve(json);
+      else reject(new Error(json.error || `Server error (${xhr.status})`));
+    };
+    xhr.onerror = () => reject(new Error('Cannot reach vault. Check Wi-Fi and that the server is running.'));
+    xhr.ontimeout = () => reject(new Error('Upload timed out. Check your connection.'));
+    xhr.send(fd);
+  });
+}
+
 function syncAvatarVersions(members) {
   for (const m of members) {
     if (m.name && m.avatarVersion) _avatarV[m.name] = m.avatarVersion;
@@ -292,10 +331,19 @@ export const addComment = async (id, text, gifUrl = null, imageX = null, imageY 
 export const deleteComment = (postId, commentId) =>
   req(`${_url}/posts/${postId}/comments/${commentId}`, { method: 'DELETE', headers: h() });
 
-// Upload one or more photos as a single post — generates full/feed/thumb variants per image
-export async function uploadPhotos(imageUris, caption = '', collectionId = null) {
+// Upload one or more photos as a single post — generates full/feed/thumb variants per image.
+// onProgress(pct 0..1, stage) — encrypt phase maps to 0..0.4, upload to 0.4..1.
+export async function uploadPhotos(imageUris, caption = '', collectionId = null, onProgress = null) {
   const uris = Array.isArray(imageUris) ? imageUris : [imageUris];
-  const variants = await Promise.all(uris.map(prepareImageVariants));
+  const report = (pct, stage) => { try { onProgress?.(pct, stage); } catch {} };
+  report(0.02, 'Encrypting');
+  let prepared = 0;
+  const variants = await Promise.all(uris.map(async (u) => {
+    const v = await prepareImageVariants(u);
+    prepared += 1;
+    report((prepared / uris.length) * 0.4, 'Encrypting');
+    return v;
+  }));
   const fd = new FormData();
   variants.forEach(({ fullUri, feedUri, thumbUri, encrypted }, i) => {
     const ext = uris[i].split('?')[0].split('.').pop()?.toLowerCase() || 'jpg';
@@ -314,7 +362,10 @@ export async function uploadPhotos(imageUris, caption = '', collectionId = null)
   // Members) so new-post notifications only reach people who can see it
   if (collectionId) fd.append('collectionId', String(collectionId));
   console.log('[FV] uploadPhotos: POSTing to', `${_url}/posts`);
-  const post = await req(`${_url}/posts`, { method: 'POST', headers: h(), body: fd });
+  report(0.4, 'Uploading');
+  const post = onProgress
+    ? await uploadWithProgress(`${_url}/posts`, fd, (p) => report(0.4 + p * 0.6, 'Uploading'))
+    : await req(`${_url}/posts`, { method: 'POST', headers: h(), body: fd });
   console.log('[FV] uploadPhotos: success, post id', post?.id);
   markFeedDirty();
   if (collectionId) await addToCollection(collectionId, post.id).catch(() => {});
@@ -454,11 +505,11 @@ export async function uploadEncryptedVideo(encVideoUri, encThumbUri, caption = '
   const encCaption = await encryptMsg(caption);
   if (encCaption) fd.append('caption', encCaption);
   if (collectionId) fd.append('collectionId', String(collectionId));
-  if (onProgress) onProgress(0.5);
-  const post = await req(`${_url}/posts`, { method: 'POST', headers: h(), body: fd });
+  const post = onProgress
+    ? await uploadWithProgress(`${_url}/posts`, fd, (p) => { try { onProgress(p, 'Uploading'); } catch {} })
+    : await req(`${_url}/posts`, { method: 'POST', headers: h(), body: fd });
   markFeedDirty();
   if (collectionId) await addToCollection(collectionId, post.id).catch(() => {});
-  if (onProgress) onProgress(1);
   return decryptPost(addTokenToPost(post));
 }
 
@@ -471,7 +522,7 @@ export const fetchStories = async () => {
 export const deleteStory = (id) =>
   req(`${_url}/stories/${id}`, { method: 'DELETE', headers: h() });
 
-export async function uploadStory(imageUri, durationHours, caption = '', videoClips = null) {
+export async function uploadStory(imageUri, durationHours, caption = '', videoClips = null, onProgress = null) {
   const fd = new FormData();
   if (videoClips && videoClips.length > 0) {
     // Video story with encrypted clips
@@ -491,7 +542,9 @@ export async function uploadStory(imageUri, durationHours, caption = '', videoCl
   fd.append('durationHours', String(durationHours));
   const encCaption = await encryptMsg(caption);
   if (encCaption) fd.append('caption', encCaption);
-  const story = await req(`${_url}/stories`, { method: 'POST', headers: h(), body: fd });
+  const story = onProgress
+    ? await uploadWithProgress(`${_url}/stories`, fd, (p) => { try { onProgress(p, 'Uploading'); } catch {} })
+    : await req(`${_url}/stories`, { method: 'POST', headers: h(), body: fd });
   return { ...addTokenToStory(story), caption: await decryptMsg(story.caption) };
 }
 
