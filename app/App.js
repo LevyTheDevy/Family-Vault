@@ -30,7 +30,7 @@ import { onUploadComplete, onUploadFailed, resumePendingUploads } from './src/ut
 import { VaultProvider, useVault } from './src/context/VaultContext';
 import { VaultSwitcherButton, NotificationBell } from './src/components/VaultSwitcher';
 import { pruneDecryptedCache } from './src/components/CachedImage';
-import { registerForPush, listenForPushTaps } from './src/utils/push';
+import { registerForPush, listenForPushTaps, autoClearTrayNotifications } from './src/utils/push';
 import ResetPasswordScreen from './src/screens/ResetPasswordScreen';
 import JoinScreen from './src/screens/JoinScreen';
 import { navigationRef } from './src/utils/navigation';
@@ -210,6 +210,7 @@ function AppInner() {
   }, [ready, cryptoReady, activeIndex]);
 
   useEffect(() => listenForPushTaps(), []);
+  useEffect(() => autoClearTrayNotifications(), []);
 
   // Background upload queue: global toasts + resume interrupted uploads once
   // the vault key is available (encryption needs it)

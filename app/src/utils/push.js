@@ -1,4 +1,4 @@
-import { Platform } from 'react-native';
+import { Platform, AppState } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
 import { registerPushToken } from './api';
@@ -38,6 +38,18 @@ export async function registerForPush() {
     console.log('[FV] push registration failed:', e?.message || e);
     return null;
   }
+}
+
+// Clear delivered tray notifications whenever the app is opened — once the
+// user is in the app the badges/bell show the same info, so stale tray
+// entries would just linger forever. Returns the unsubscribe fn.
+export function autoClearTrayNotifications() {
+  const clear = () => Notifications.dismissAllNotificationsAsync().catch(() => {});
+  clear(); // app just launched — clear whatever accumulated while closed
+  const sub = AppState.addEventListener('change', (st) => {
+    if (st === 'active') clear();
+  });
+  return () => sub.remove();
 }
 
 // Tapping a push routes to the relevant tab. Returns the unsubscribe fn.
