@@ -6,8 +6,20 @@ const fs = require('fs');
 const crypto = require('crypto');
 const db = require('../db/sqlite');
 const { JWT_SECRET } = require('./auth');
+const push = require('../push');
 
 const router = express.Router();
+
+// After creating a post: file it into a collection (the one the client chose,
+// else the All Members catch-all) and notify everyone who can see it.
+function afterPostCreate(req, post) {
+  const me = req.member.name;
+  const colId = req.body.collectionId ? Number(req.body.collectionId) : null;
+  const canSee = db.assignPostCollection(post.id, colId, me);
+  const others = canSee.filter((n) => n.toLowerCase() !== me.toLowerCase());
+  for (const n of others) db.addNotification(n, 'post', me, post.id);
+  push.notify(others, 'FamilyVault', `${me} shared a new post`, { type: 'post', postId: post.id });
+}
 
 const { STORAGE_DIR } = require('../config');
 const storage = multer.diskStorage({
@@ -112,6 +124,7 @@ router.post('/posts', auth, (req, res, next) => {
       durationSecs: req.body[`clipDuration${i}`] ? Number(req.body[`clipDuration${i}`]) : null,
     }));
     const post = db.insertPost([], req.member.name, caption, 'video', null, null, null, [], [], videoClips);
+    afterPostCreate(req, post);
     return res.json(withBase(req, post));
   } else if (videos.length) {
     // Single legacy video post
@@ -119,6 +132,7 @@ router.post('/posts', auth, (req, res, next) => {
     const thumbFile = thumbnails[0] || null;
     const durationSecs = req.body.durationSecs ? Number(req.body.durationSecs) : null;
     const post = db.insertPost([], req.member.name, caption, 'video', videoFile.filename, thumbFile ? thumbFile.filename : null, durationSecs);
+    afterPostCreate(req, post);
     return res.json(withBase(req, post));
   } else {
     // Photo post
@@ -126,6 +140,7 @@ router.post('/posts', auth, (req, res, next) => {
     const feedFilenames = feedPhotos.map((f) => f.filename);
     const thumbFilenames = thumbPhotos.map((f) => f.filename);
     const post = db.insertPost(filenames, req.member.name, caption, 'image', null, null, null, feedFilenames, thumbFilenames);
+    afterPostCreate(req, post);
     res.json(withBase(req, post));
   }
 });
@@ -141,6 +156,7 @@ router.post('/posts/from-upload', auth, (req, res) => {
     return res.status(400).json({ error: 'Uploaded file not found' });
   }
   const post = db.insertPost([], req.member.name, caption || '', 'video', safeVideo, safeThumb, durationSecs ? Number(durationSecs) : null);
+  afterPostCreate(req, post);
   res.json(withBase(req, post));
 });
 
@@ -156,7 +172,20 @@ router.delete('/posts/:id', auth, (req, res) => {
 });
 
 router.post('/posts/:id/like', auth, (req, res) => {
-  try { res.json({ likes: db.toggleLike(Number(req.params.id), req.member.name) }); }
+  try {
+    const postId = Number(req.params.id);
+    const me = req.member.name;
+    const { likes, liked, postAuthor } = db.toggleLike(postId, me);
+    if (postAuthor.toLowerCase() !== me.toLowerCase()) {
+      if (liked) {
+        db.addNotification(postAuthor, 'like', me, postId);
+        push.notify([postAuthor], 'FamilyVault', `${me} liked your post`, { type: 'like', postId });
+      } else {
+        db.removeLikeNotification(postAuthor, me, postId);
+      }
+    }
+    res.json({ likes });
+  }
   catch (e) { res.status(400).json({ error: e.message }); }
 });
 
@@ -170,13 +199,21 @@ router.post('/posts/:id/comments', auth, (req, res) => {
   if (!text?.trim() && !gifUrl) return res.status(400).json({ error: 'Text or GIF required' });
   if (text && String(text).length > 2000) return res.status(400).json({ error: 'Comment too long (max 2000 chars)' });
   try {
-    res.json(db.addComment(
-      Number(req.params.id), req.member.name,
+    const postId = Number(req.params.id);
+    const me = req.member.name;
+    const comment = db.addComment(
+      postId, me,
       (text || '').trim(), gifUrl || null,
       imageX != null ? Number(imageX) : null,
       imageY != null ? Number(imageY) : null,
       imageIndex != null ? Number(imageIndex) : 0,
-    ));
+    );
+    const postAuthor = db.getPostAuthor(postId);
+    if (postAuthor && postAuthor.toLowerCase() !== me.toLowerCase()) {
+      db.addNotification(postAuthor, 'comment', me, postId);
+      push.notify([postAuthor], 'FamilyVault', `${me} commented on your post`, { type: 'comment', postId });
+    }
+    res.json(comment);
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 

@@ -5,8 +5,22 @@ const path = require('path');
 const crypto = require('crypto');
 const db = require('../db/sqlite');
 const { JWT_SECRET } = require('./auth');
+const push = require('../push');
 
 const router = express.Router();
+
+// Push to everyone else in the conversation. Body is generic on purpose:
+// message text is E2E encrypted, the server has nothing readable to show.
+function notifyNewMessage(conversationId, me) {
+  try {
+    const meta = db.getConversationMeta(conversationId);
+    if (!meta) return;
+    const others = db.getConversationMemberNames(conversationId)
+      .filter((n) => n.toLowerCase() !== me.toLowerCase());
+    const title = meta.isDM ? `New message from ${me}` : `New message in ${meta.name || 'group chat'}`;
+    push.notify(others, title, 'Open FamilyVault to read it.', { type: 'message', conversationId });
+  } catch {}
+}
 
 const { STORAGE_DIR } = require('../config');
 const mediaStorage = multer.diskStorage({
@@ -74,7 +88,11 @@ router.post('/conversations/:id/messages', auth, (req, res) => {
   const safeRef = postRef && typeof postRef === 'object'
     ? { id: Number(postRef.id), imageUrl: String(postRef.imageUrl || ''), author: String(postRef.author || ''), caption: String(postRef.caption || '') }
     : null;
-  try { res.json(db.insertMessage(Number(req.params.id), req.member.name, (text || '').trim(), gifUrl || null, null, null, replyToId || null, safeRef)); }
+  try {
+    const msg = db.insertMessage(Number(req.params.id), req.member.name, (text || '').trim(), gifUrl || null, null, null, replyToId || null, safeRef);
+    notifyNewMessage(Number(req.params.id), req.member.name);
+    res.json(msg);
+  }
   catch (e) { res.status(403).json({ error: e.message }); }
 });
 
@@ -103,6 +121,7 @@ router.post('/conversations/:id/media', auth, (req, res) => {
         isVideo ? null : url,
         isVideo ? url : null,
       );
+      notifyNewMessage(Number(req.params.id), req.member.name);
       res.json(msg);
     } catch (e) { res.status(400).json({ error: e.message }); }
   });

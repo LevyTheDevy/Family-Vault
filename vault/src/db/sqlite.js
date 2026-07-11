@@ -208,6 +208,21 @@ sql.exec(`
     emoji       TEXT NOT NULL,
     PRIMARY KEY (message_id, member_name)
   );
+  CREATE TABLE IF NOT EXISTS notifications (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    recipient       TEXT NOT NULL COLLATE NOCASE,
+    type            TEXT NOT NULL,
+    actor           TEXT NOT NULL,
+    post_id         INTEGER,
+    conversation_id INTEGER,
+    seen            INTEGER NOT NULL DEFAULT 0,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE TABLE IF NOT EXISTS push_tokens (
+    token       TEXT PRIMARY KEY,
+    member_name TEXT NOT NULL COLLATE NOCASE,
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+  );
 `);
 
 // ─── One-time migration from legacy JSON ─────────────────────────────────────
@@ -331,7 +346,33 @@ sql.exec(`
   CREATE INDEX IF NOT EXISTS idx_posts_author           ON posts(author);
   CREATE INDEX IF NOT EXISTS idx_stories_author         ON stories(author);
   CREATE INDEX IF NOT EXISTS idx_stories_expires        ON stories(expires_at);
+  CREATE INDEX IF NOT EXISTS idx_notifications_recipient ON notifications(recipient, seen);
 `);
+
+// ─── System collection: "All Members" ────────────────────────────────────────
+// Posts created without an explicit collection land here so the whole family
+// can browse the full shared feed as a collection. Author '' is reserved
+// (member names can't be empty), which blocks delete/member edits via the API.
+function ensureAllMembersCollection() {
+  let id = null;
+  const row = sql.prepare("SELECT value FROM meta WHERE key = 'all_members_collection_id'").get();
+  if (row && sql.prepare('SELECT 1 FROM collections WHERE id = ?').get(Number(row.value))) id = Number(row.value);
+  if (!id) {
+    const res = sql.prepare("INSERT INTO collections (name, author) VALUES ('All Members', '')").run();
+    id = res.lastInsertRowid;
+    sql.prepare("INSERT OR REPLACE INTO meta VALUES ('all_members_collection_id', ?)").run(String(id));
+  }
+  for (const m of sql.prepare('SELECT name FROM members').all())
+    sql.prepare('INSERT OR IGNORE INTO collection_members VALUES (?,?)').run(id, m.name);
+  // collection_posts has no FK to posts — drop rows for posts deleted before cleanup existed
+  sql.prepare('DELETE FROM collection_posts WHERE post_id NOT IN (SELECT id FROM posts)').run();
+  // Backfill: every post that belongs to no collection joins All Members
+  sql.prepare(`INSERT OR IGNORE INTO collection_posts (collection_id, post_id, added_at)
+    SELECT ?, p.id, p.created_at FROM posts p
+    WHERE NOT EXISTS (SELECT 1 FROM collection_posts cp WHERE cp.post_id = p.id)`).run(id);
+  return id;
+}
+const ALL_MEMBERS_ID = ensureAllMembersCollection();
 
 // ─── Row normalizers ─────────────────────────────────────────────────────────
 function postExtras(postId) {
@@ -421,6 +462,7 @@ function cascadeRename(oldName, newName) {
     ['collections', 'author'], ['collection_members', 'member_name'],
     ['conversations', 'created_by'], ['conversation_members', 'member_name'],
     ['messages', 'author'], ['message_reads', 'member_name'], ['message_reactions', 'member_name'],
+    ['notifications', 'recipient'], ['notifications', 'actor'], ['push_tokens', 'member_name'],
   ];
   for (const [table, col] of tables)
     sql.prepare(`UPDATE ${table} SET ${col} = ? WHERE ${col} = ? COLLATE NOCASE`).run(newName, oldName);
@@ -524,6 +566,7 @@ const db = {
     for (const g of groups) {
       sql.prepare('INSERT OR IGNORE INTO conversation_members VALUES (?,?)').run(g.id, member.name);
     }
+    sql.prepare('INSERT OR IGNORE INTO collection_members VALUES (?,?)').run(ALL_MEMBERS_ID, member.name);
     return member;
   },
 
@@ -592,6 +635,8 @@ const db = {
       sql.prepare('DELETE FROM post_saves WHERE member_name = ? COLLATE NOCASE').run(memberName);
       sql.prepare('DELETE FROM comments WHERE author = ? COLLATE NOCASE').run(memberName);
       sql.prepare('DELETE FROM collection_members WHERE member_name = ? COLLATE NOCASE').run(memberName);
+      sql.prepare('DELETE FROM notifications WHERE recipient = ? COLLATE NOCASE OR actor = ? COLLATE NOCASE').run(memberName, memberName);
+      sql.prepare('DELETE FROM push_tokens WHERE member_name = ? COLLATE NOCASE').run(memberName);
 
       sql.prepare('DELETE FROM members WHERE id = ?').run(m.id);
     })();
@@ -721,15 +766,24 @@ const db = {
     if (p.video_filename) files.push(p.video_filename);
     if (p.thumbnail_filename) files.push(p.thumbnail_filename);
     sql.prepare('DELETE FROM posts WHERE id = ?').run(id);
+    // collection_posts and notifications have no FK to posts — clean up manually
+    sql.prepare('DELETE FROM collection_posts WHERE post_id = ?').run(id);
+    sql.prepare('DELETE FROM notifications WHERE post_id = ?').run(id);
     return files;
   },
 
   toggleLike(id, memberName) {
-    if (!sql.prepare('SELECT id FROM posts WHERE id = ?').get(id)) throw new Error('Post not found');
+    const post = sql.prepare('SELECT id, author FROM posts WHERE id = ?').get(id);
+    if (!post) throw new Error('Post not found');
     const existing = sql.prepare('SELECT 1 FROM post_likes WHERE post_id = ? AND member_name = ? COLLATE NOCASE').get(id, memberName);
     if (existing) sql.prepare('DELETE FROM post_likes WHERE post_id = ? AND member_name = ? COLLATE NOCASE').run(id, memberName);
     else sql.prepare('INSERT INTO post_likes VALUES (?,?)').run(id, memberName);
-    return sql.prepare('SELECT member_name FROM post_likes WHERE post_id = ?').all(id).map(r => r.member_name);
+    const likes = sql.prepare('SELECT member_name FROM post_likes WHERE post_id = ?').all(id).map(r => r.member_name);
+    return { likes, liked: !existing, postAuthor: post.author };
+  },
+
+  getPostAuthor(id) {
+    return sql.prepare('SELECT author FROM posts WHERE id = ?').get(id)?.author || null;
   },
 
   addComment(postId, author, text, gifUrl = null, imageX = null, imageY = null, imageIndex = 0) {
@@ -834,7 +888,7 @@ const db = {
     const rows = sql.prepare(`SELECT DISTINCT c.* FROM collections c
       JOIN collection_members cm ON c.id = cm.collection_id
       WHERE c.author = ? COLLATE NOCASE OR cm.member_name = ? COLLATE NOCASE
-      ORDER BY c.id`).all(memberName, memberName);
+      ORDER BY CASE WHEN c.id = ? THEN 0 ELSE 1 END, c.id`).all(memberName, memberName, ALL_MEMBERS_ID);
     return rows.map(normalizeCollection);
   },
 
@@ -845,10 +899,15 @@ const db = {
   },
 
   deleteCollection(id, requestingMember) {
+    if (id === ALL_MEMBERS_ID) throw new Error('All Members is built in and cannot be deleted');
     const col = sql.prepare('SELECT * FROM collections WHERE id = ?').get(id);
     if (!col) throw new Error('Collection not found');
     if (col.author !== requestingMember) throw new Error('Not your collection');
     sql.prepare('DELETE FROM collections WHERE id = ?').run(id);
+    // Orphaned posts fall back into All Members so they stay browsable
+    sql.prepare(`INSERT OR IGNORE INTO collection_posts (collection_id, post_id)
+      SELECT ?, p.id FROM posts p
+      WHERE NOT EXISTS (SELECT 1 FROM collection_posts cp WHERE cp.post_id = p.id)`).run(ALL_MEMBERS_ID);
   },
 
   addCollectionMember(colId, memberName, requestingMember) {
@@ -879,11 +938,45 @@ const db = {
       if (!isMember) throw new Error('You are not a member of this collection');
     }
     sql.prepare('INSERT OR IGNORE INTO collection_posts (collection_id, post_id) VALUES (?,?)').run(colId, postId);
+    // A post moved into a real collection leaves the catch-all All Members
+    if (colId !== ALL_MEMBERS_ID)
+      sql.prepare('DELETE FROM collection_posts WHERE collection_id = ? AND post_id = ?').run(ALL_MEMBERS_ID, postId);
     return normalizeCollection(col);
   },
 
   removeFromCollection(colId, postId) {
     sql.prepare('DELETE FROM collection_posts WHERE collection_id = ? AND post_id = ?').run(colId, postId);
+    // A post in no collection is visible to everyone — reflect that in All Members
+    if (!sql.prepare('SELECT 1 FROM collection_posts WHERE post_id = ?').get(postId))
+      sql.prepare('INSERT OR IGNORE INTO collection_posts (collection_id, post_id) VALUES (?,?)').run(ALL_MEMBERS_ID, postId);
+  },
+
+  getAllMembersCollectionId() { return ALL_MEMBERS_ID; },
+
+  // Put a freshly created post in its collection: the chosen one if the author
+  // belongs to it, otherwise the All Members catch-all. Returns the member
+  // names who can see the post (used for notifications).
+  assignPostCollection(postId, colId, author) {
+    let target = ALL_MEMBERS_ID;
+    if (colId && colId !== ALL_MEMBERS_ID
+        && sql.prepare('SELECT 1 FROM collections WHERE id = ?').get(colId)
+        && sql.prepare('SELECT 1 FROM collection_members WHERE collection_id = ? AND member_name = ? COLLATE NOCASE').get(colId, author))
+      target = colId;
+    sql.prepare('INSERT OR IGNORE INTO collection_posts (collection_id, post_id) VALUES (?,?)').run(target, postId);
+    return sql.prepare('SELECT member_name FROM collection_members WHERE collection_id = ?').all(target).map(r => r.member_name);
+  },
+
+  // First post's thumbnail in a collection — cheap replacement for loading every post
+  getCollectionThumbFile(colId) {
+    const row = sql.prepare(`
+      SELECT COALESCE(
+        (SELECT COALESCE(pi.thumb_filename, pi.filename) FROM post_images pi WHERE pi.post_id = p.id ORDER BY pi.position LIMIT 1),
+        p.thumbnail_filename,
+        (SELECT pv.thumb_filename FROM post_videos pv WHERE pv.post_id = p.id ORDER BY pv.position LIMIT 1)
+      ) AS f
+      FROM posts p JOIN collection_posts cp ON cp.post_id = p.id
+      WHERE cp.collection_id = ? ORDER BY cp.added_at LIMIT 1`).get(colId);
+    return row?.f || null;
   },
 
   getCollectionPosts(colId, memberName) {
@@ -1025,6 +1118,85 @@ const db = {
     if (!m) throw new Error('Message not found');
     if (m.author !== requestingMember) throw new Error('Not your message');
     sql.prepare('DELETE FROM messages WHERE id = ?').run(messageId);
+  },
+
+  getConversationMeta(conversationId) {
+    const c = sql.prepare('SELECT id, name, is_dm FROM conversations WHERE id = ?').get(conversationId);
+    return c ? { id: c.id, name: c.name, isDM: !!c.is_dm } : null;
+  },
+
+  getConversationMemberNames(conversationId) {
+    return sql.prepare('SELECT member_name FROM conversation_members WHERE conversation_id = ?')
+      .all(conversationId).map(r => r.member_name);
+  },
+
+  // Total unread messages across all conversations — cheap badge poll
+  getTotalUnread(memberName) {
+    return sql.prepare(`SELECT COUNT(*) AS n FROM messages m
+      JOIN conversation_members cm ON cm.conversation_id = m.conversation_id AND cm.member_name = ? COLLATE NOCASE
+      WHERE NOT EXISTS (SELECT 1 FROM message_reads mr WHERE mr.message_id = m.id AND mr.member_name = ? COLLATE NOCASE)`)
+      .get(memberName, memberName).n;
+  },
+
+  // ── Notifications ──────────────────────────────────────────────────────────
+  addNotification(recipient, type, actor, postId = null, conversationId = null) {
+    if (!recipient || recipient.toLowerCase() === actor.toLowerCase()) return;
+    sql.prepare('INSERT INTO notifications (recipient, type, actor, post_id, conversation_id) VALUES (?,?,?,?,?)')
+      .run(recipient, type, actor, postId, conversationId);
+  },
+
+  // Unliking a post retracts the (still unseen) like notification
+  removeLikeNotification(recipient, actor, postId) {
+    sql.prepare(`DELETE FROM notifications WHERE type = 'like' AND seen = 0
+      AND recipient = ? COLLATE NOCASE AND actor = ? COLLATE NOCASE AND post_id = ?`)
+      .run(recipient, actor, postId);
+  },
+
+  getNotifications(recipient, limit = 100) {
+    return sql.prepare(`SELECT n.*,
+        COALESCE(
+          (SELECT COALESCE(pi.thumb_filename, pi.filename) FROM post_images pi WHERE pi.post_id = n.post_id ORDER BY pi.position LIMIT 1),
+          (SELECT p.thumbnail_filename FROM posts p WHERE p.id = n.post_id),
+          (SELECT pv.thumb_filename FROM post_videos pv WHERE pv.post_id = n.post_id ORDER BY pv.position LIMIT 1)
+        ) AS thumb_file
+      FROM notifications n WHERE n.recipient = ? COLLATE NOCASE
+      ORDER BY n.id DESC LIMIT ?`).all(recipient, limit)
+      .map(n => ({
+        id: n.id, type: n.type, actor: n.actor, postId: n.post_id,
+        conversationId: n.conversation_id, seen: !!n.seen,
+        createdAt: n.created_at, thumbFile: n.thumb_file || null,
+      }));
+  },
+
+  markNotificationsSeen(recipient) {
+    sql.prepare('UPDATE notifications SET seen = 1 WHERE recipient = ? COLLATE NOCASE AND seen = 0').run(recipient);
+  },
+
+  getUnseenNotificationCount(recipient) {
+    return sql.prepare('SELECT COUNT(*) AS n FROM notifications WHERE recipient = ? COLLATE NOCASE AND seen = 0').get(recipient).n;
+  },
+
+  purgeOldNotifications(days = 30) {
+    return sql.prepare(`DELETE FROM notifications WHERE created_at < datetime('now', ?)`).run(`-${days} days`).changes;
+  },
+
+  // ── Push tokens ────────────────────────────────────────────────────────────
+  upsertPushToken(token, memberName) {
+    sql.prepare(`INSERT INTO push_tokens (token, member_name) VALUES (?,?)
+      ON CONFLICT(token) DO UPDATE SET member_name = excluded.member_name, updated_at = datetime('now')`)
+      .run(token, memberName);
+  },
+
+  getPushTokens(memberNames) {
+    if (!memberNames.length) return [];
+    const placeholders = memberNames.map(() => '?').join(',');
+    // member_name is declared COLLATE NOCASE, so IN comparisons are case-insensitive
+    return sql.prepare(`SELECT token, member_name FROM push_tokens WHERE member_name IN (${placeholders})`)
+      .all(...memberNames).map(r => ({ token: r.token, memberName: r.member_name }));
+  },
+
+  deletePushToken(token) {
+    sql.prepare('DELETE FROM push_tokens WHERE token = ?').run(token);
   },
 
   // ── Stats ──────────────────────────────────────────────────────────────────

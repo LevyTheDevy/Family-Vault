@@ -10,14 +10,6 @@ function auth(req, res, next) {
   catch { res.status(401).json({ error: 'Invalid token' }); }
 }
 
-function thumbUrl(base, post) {
-  if (!post) return null;
-  const firstFile = (post.filenames && post.filenames[0]) || post.filename;
-  if (firstFile) return `${base}/storage/${firstFile}`;
-  if (post.thumbnailFilename) return `${base}/storage/${post.thumbnailFilename}`;
-  return null;
-}
-
 function withBase(req, post) {
   const proto = req.headers['x-forwarded-proto'] || req.protocol;
   const base = `${proto}://${req.get('host')}`;
@@ -43,15 +35,18 @@ router.get('/collections', auth, (req, res) => {
   const proto = req.headers['x-forwarded-proto'] || req.protocol;
   const base = `${proto}://${req.get('host')}`;
   const me = req.member.name;
+  const allMembersId = db.getAllMembersCollectionId();
   const collections = db.getCollections(me).map((c) => {
-    const existingPosts = c.postIds.map((id) => db.getPostById(id)).filter(Boolean);
-    const firstPost = existingPosts[0] || null;
+    // Dangling post ids are cleaned up on post delete + startup, so postIds is
+    // accurate — no need to load every post (All Members holds most of them)
+    const thumbFile = db.getCollectionThumbFile(c.id);
     return {
       ...c,
-      postCount: existingPosts.length,
-      thumbnailUrl: thumbUrl(base, firstPost),
+      postCount: c.postIds.length,
+      thumbnailUrl: thumbFile ? `${base}/storage/${thumbFile}` : null,
       memberCount: (c.memberNames || [c.author]).length,
       isOwner: c.author === me,
+      isSystem: c.id === allMembersId,
     };
   });
   res.json(collections);

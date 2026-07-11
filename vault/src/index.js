@@ -17,6 +17,7 @@ const messagesRoutes = require('./routes/messages');
 const gifRoutes = require('./routes/gif');
 const adminRoutes = require('./routes/admin');
 const uploadsRoutes = require('./routes/uploads');
+const notificationsRoutes = require('./routes/notifications');
 const db = require('./db/sqlite');
 
 // ─── Public API (port 3000, all interfaces, Cloudflare-facing) ───────────────
@@ -53,6 +54,7 @@ app.use(collectionsRoutes);
 app.use(messagesRoutes);
 app.use(gifRoutes);
 app.use(uploadsRoutes);
+app.use(notificationsRoutes);
 
 app.get('/health', (req, res) => res.json({ status: 'ok', vaultName: getVaultName() }));
 
@@ -66,17 +68,21 @@ adminApp.use(express.urlencoded({ extended: false, limit: '1mb' }));
 adminApp.use(adminRoutes);
 adminApp.get('/', (req, res) => res.redirect('/admin'));
 
-// ─── Cleanup: purge expired stories every hour ────────────────────────────────
-function purgeExpiredStories() {
+// ─── Cleanup: purge expired stories + old notifications every hour ───────────
+function runCleanup() {
   try {
     const files = db.purgeExpiredStories();
     for (const fn of files)
       try { fs.unlinkSync(path.join(STORAGE_DIR, fn)); } catch {}
     if (files.length) console.log(`[cleanup] removed ${files.length} expired story file(s)`);
   } catch {}
+  try {
+    const n = db.purgeOldNotifications(30);
+    if (n) console.log(`[cleanup] removed ${n} old notification(s)`);
+  } catch {}
 }
-purgeExpiredStories();
-setInterval(purgeExpiredStories, 60 * 60 * 1000);
+runCleanup();
+setInterval(runCleanup, 60 * 60 * 1000);
 
 // ─── Start both servers ───────────────────────────────────────────────────────
 function getLocalIp() {
