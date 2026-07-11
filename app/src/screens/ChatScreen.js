@@ -107,6 +107,7 @@ export default function ChatScreen({ route, navigation }) {
   const [contextMsg, setContextMsg] = useState(null); // message with emoji picker open
   const listRef = useRef();
   const pollRef = useRef();
+  const mountedRef = useRef(true);
   const me = getMemberName();
   const insets = useSafeAreaInsets();
   const originalWindowH = useRef(Dimensions.get('window').height);
@@ -151,19 +152,33 @@ export default function ChatScreen({ route, navigation }) {
     ]);
   };
 
+  // Cheap change fingerprint: id + read count + reaction count per message.
+  // Polls fetch the same 200 messages every 3s; when nothing changed we skip
+  // setMessages entirely so the list doesn't re-render, and skip the
+  // redundant mark-read round trip.
+  const lastFpRef = useRef('');
+  const fingerprint = (msgs) => msgs.map((m) =>
+    `${m.id}:${m.readBy?.length || 0}:${Object.values(m.reactions || {}).reduce((s, a) => s + a.length, 0)}`
+  ).join('|');
+
   const load = async (silent = false) => {
     try {
       const data = await fetchMessages(conversation.id);
+      if (!mountedRef.current) return;
+      const fp = fingerprint(data);
+      if (silent && fp === lastFpRef.current) return;
+      lastFpRef.current = fp;
       setMessages(data);
       if (!silent) setLoading(false);
       markConversationRead(conversation.id).catch(() => {});
-    } catch { if (!silent) setLoading(false); }
+    } catch { if (mountedRef.current && !silent) setLoading(false); }
   };
 
   useEffect(() => {
+    mountedRef.current = true;
     load();
     pollRef.current = setInterval(() => load(true), POLL_MS);
-    return () => clearInterval(pollRef.current);
+    return () => { mountedRef.current = false; clearInterval(pollRef.current); };
   }, []);
 
   useEffect(() => {

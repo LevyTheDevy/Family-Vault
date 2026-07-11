@@ -27,6 +27,7 @@ import { UnreadProvider, useUnread } from './src/context/UnreadContext';
 import { ToastProvider } from './src/context/ToastContext';
 import { VaultProvider, useVault } from './src/context/VaultContext';
 import { VaultSwitcherButton, NotificationBell } from './src/components/VaultSwitcher';
+import { pruneDecryptedCache } from './src/components/CachedImage';
 import ResetPasswordScreen from './src/screens/ResetPasswordScreen';
 import JoinScreen from './src/screens/JoinScreen';
 import { navigationRef } from './src/utils/navigation';
@@ -191,6 +192,7 @@ function AppInner() {
   useEffect(() => {
     if (!ready) return;
     FileSystem.deleteAsync(FileSystem.cacheDirectory + 'fv/', { idempotent: true }).catch(() => {});
+    pruneDecryptedCache().catch(() => {}); // cap decrypted-media cache at 500MB
     if (vaults.length === 0) setInitialRoute('Scan');
     else if (cryptoReady) setInitialRoute('Main');
     else setInitialRoute('Auth');

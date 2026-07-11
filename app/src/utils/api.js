@@ -17,6 +17,7 @@ export const clearVaultCrypto = () => {
   _encryptFn = null; _decryptFn = null;
   _decryptImgFn = null;
   _encryptImgBinFn = null; _decryptImgBinFn = null;
+  _decCache.clear();
 };
 export const getStoredAuthHeader = () => _token ? { Authorization: `Bearer ${_token}` } : {};
 export const getDecryptFn = () => _decryptFn;
@@ -94,10 +95,24 @@ async function encryptMsg(text) {
   try { return 'enc:' + await _encryptFn(text); } catch { return text; }
 }
 
+// Ciphertext → plaintext cache. Chat polls re-fetch the same messages every few
+// seconds; caching by ciphertext makes repeat decrypts free and is safe because
+// the same ciphertext always yields the same plaintext under the same key
+// (cleared in clearVaultCrypto when the key goes away).
+const _decCache = new Map();
+const DEC_CACHE_MAX = 3000;
+
 async function decryptMsg(text) {
   if (!text || !text.startsWith('enc:')) return text;
   if (!_decryptFn) return '[Encrypted]';
-  try { return await _decryptFn(text.slice(4)); } catch { return '[Encrypted]'; }
+  const hit = _decCache.get(text);
+  if (hit !== undefined) return hit;
+  try {
+    const plain = await _decryptFn(text.slice(4));
+    if (_decCache.size >= DEC_CACHE_MAX) _decCache.clear();
+    _decCache.set(text, plain);
+    return plain;
+  } catch { return '[Encrypted]'; }
 }
 const _avatarV = {};
 
@@ -179,13 +194,31 @@ export const getToken = () => _token;
 const h = () => ({ Authorization: `Bearer ${_token}` });
 const jh = () => ({ ...h(), 'Content-Type': 'application/json' });
 
+// RN fetch has no default timeout — a dropped tunnel connection hangs forever.
+// Uploads (FormData bodies) get 5 min; everything else 15s. Callers passing
+// their own signal manage their own lifetime.
+const API_TIMEOUT_MS = 15_000;
+const UPLOAD_TIMEOUT_MS = 300_000;
+
 async function req(url, opts = {}) {
+  let timedOut = false, timer;
+  if (!opts.signal) {
+    const controller = new AbortController();
+    const ms = opts.timeoutMs ?? (opts.body instanceof FormData ? UPLOAD_TIMEOUT_MS : API_TIMEOUT_MS);
+    timer = setTimeout(() => { timedOut = true; controller.abort(); }, ms);
+    opts = { ...opts, signal: controller.signal };
+  }
   let res;
   try {
     res = await fetch(url, opts);
   } catch (e) {
-    if (e.name === 'AbortError') throw e;
+    if (e.name === 'AbortError') {
+      if (timedOut) throw new Error('Request timed out. Check your connection and that the server is running.');
+      throw e;
+    }
     throw new Error('Cannot reach vault. Check Wi-Fi and that the server is running.');
+  } finally {
+    clearTimeout(timer);
   }
   let json = {};
   try { json = await res.json(); } catch { /* non-JSON body */ }

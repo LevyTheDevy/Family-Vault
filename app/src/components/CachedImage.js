@@ -13,6 +13,35 @@ const ENC_CACHE_DIR = FileSystem.cacheDirectory + 'fv-enc/';
 const _inflight = new Map(); // cacheFile → Promise  (prevents double-decrypt of same file)
 const _memCache = new Map(); // filename  → local path (avoids disk I/O after first decrypt)
 
+// Wipe all decrypted media — called on vault switch/disconnect so one vault's
+// plaintext images never survive into another vault's session.
+export async function clearDecryptedCache() {
+  _memCache.clear();
+  await FileSystem.deleteAsync(ENC_CACHE_DIR, { idempotent: true }).catch(() => {});
+}
+
+// Evict oldest decrypted files until the cache fits the cap. Runs at app start,
+// before any image renders, so _memCache never holds paths to pruned files.
+export async function pruneDecryptedCache(maxBytes = 500 * 1024 * 1024) {
+  try {
+    const names = await FileSystem.readDirectoryAsync(ENC_CACHE_DIR).catch(() => []);
+    if (!names.length) return;
+    const files = [];
+    for (const n of names) {
+      const info = await FileSystem.getInfoAsync(ENC_CACHE_DIR + n, { size: true }).catch(() => null);
+      if (info?.exists) files.push({ path: ENC_CACHE_DIR + n, size: info.size || 0, mtime: info.modificationTime || 0 });
+    }
+    let total = files.reduce((s, f) => s + f.size, 0);
+    if (total <= maxBytes) return;
+    files.sort((a, b) => a.mtime - b.mtime);
+    for (const f of files) {
+      if (total <= maxBytes) break;
+      await FileSystem.deleteAsync(f.path, { idempotent: true }).catch(() => {});
+      total -= f.size;
+    }
+  } catch {}
+}
+
 function getCachedUri(uri) {
   if (!uri || !isEncrypted(uri)) return null;
   const filename = uri.match(/\/storage\/([^?#]+)/)?.[1];

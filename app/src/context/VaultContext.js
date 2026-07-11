@@ -5,6 +5,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { setVault, setVaultCrypto, clearVaultCrypto } from '../utils/api';
 import { loadAuth } from '../utils/storage';
 import { unwrapVaultKey, encryptText, decryptText, decryptImageText, encryptImageBin, decryptImageBin, b64ToBytes } from '../utils/crypto';
+import { clearDecryptedCache } from '../components/CachedImage';
 
 const VaultContext = createContext({});
 export const useVault = () => useContext(VaultContext);
@@ -62,7 +63,9 @@ async function eraseVaultKey(i) {
 }
 
 function purgeMediaCache() {
+  // fv/ is a legacy dir from old builds; fv-enc/ holds the decrypted media
   FileSystem.deleteAsync(FileSystem.cacheDirectory + 'fv/', { idempotent: true }).catch(() => {});
+  clearDecryptedCache().catch(() => {});
 }
 
 export function VaultProvider({ children }) {
