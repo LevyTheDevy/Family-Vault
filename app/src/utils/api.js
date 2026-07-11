@@ -682,8 +682,17 @@ export const reactToMessage = (conversationId, messageId, emoji) =>
     method: 'POST', headers: jh(), body: JSON.stringify({ emoji }),
   });
 
+// Screens (MessagesScreen) subscribe to zero out a conversation's unread row
+// the moment a chat confirms its read — no refetch needed
+const _convoReadSubs = new Set();
+export const onConversationRead = (cb) => { _convoReadSubs.add(cb); return () => _convoReadSubs.delete(cb); };
+
 export const markConversationRead = (conversationId) =>
-  req(`${_url}/conversations/${conversationId}/read`, { method: 'POST', headers: h() });
+  req(`${_url}/conversations/${conversationId}/read`, { method: 'POST', headers: h() })
+    .then((r) => {
+      for (const cb of _convoReadSubs) { try { cb(conversationId); } catch {} }
+      return r;
+    });
 
 export const deleteChatMessage = (conversationId, messageId) =>
   req(`${_url}/conversations/${conversationId}/messages/${messageId}`, { method: 'DELETE', headers: h() });

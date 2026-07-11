@@ -35,7 +35,8 @@ export default function CollectionDetailScreen({ route, navigation }) {
   useEffect(() => {
     fetchCollectionPosts(collection.id)
       .then(setPosts)
-      .catch((e) => Alert.alert('Access denied', e.message))
+      // A network failure lands here too — don't mislabel it "Access denied"
+      .catch((e) => Alert.alert('Could not load collection', e.message))
       .finally(() => setLoading(false));
   }, []);
 

@@ -73,8 +73,8 @@ export default function CollectionsScreen({ navigation }) {
   };
 
   const load = async () => {
-    const data = await fetchCollections().catch(() => []);
-    setCollections(data);
+    // Keep the last known list if the fetch fails — don't wipe to empty
+    try { setCollections(await fetchCollections()); } catch {}
   };
 
   useFocusEffect(useCallback(() => {

@@ -8,6 +8,7 @@ import { Feather } from '@expo/vector-icons';
 import {
   fetchConversations, createConversation, startDM,
   fetchFamilyMembers, deleteConversation, getMemberName, getAvatarUrl,
+  onConversationRead,
 } from '../utils/api';
 import { useTheme } from '../context/ThemeContext';
 import { useUnread } from '../context/UnreadContext';
@@ -52,15 +53,26 @@ export default function MessagesScreen({ navigation }) {
   }, [navigation, colors]);
 
   const loadConvos = async () => {
-    const data = await fetchConversations().catch(() => []);
-    setConversations(data);
-    updateFromConversations(data);
+    // Keep the last known list on a failed fetch — never wipe it to empty
+    try {
+      const data = await fetchConversations();
+      setConversations(data);
+      updateFromConversations(data);
+    } catch {}
   };
 
   const loadMembers = async () => {
-    const data = await fetchFamilyMembers().catch(() => []);
-    setMembers(data.filter((m) => m.name !== me));
+    try {
+      const data = await fetchFamilyMembers();
+      setMembers(data.filter((m) => m.name !== me));
+    } catch {}
   };
+
+  // Opening a chat marks it read — zero its row here immediately so the list
+  // is correct even within the 20s refetch window
+  useEffect(() => onConversationRead((convoId) => {
+    setConversations((prev) => prev.map((c) => c.id === convoId ? { ...c, unreadCount: 0 } : c));
+  }), []);
 
   useFocusEffect(useCallback(() => {
     if (fetchingRef.current) return;

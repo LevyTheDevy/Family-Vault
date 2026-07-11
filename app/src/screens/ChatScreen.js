@@ -157,11 +157,16 @@ export default function ChatScreen({ route, navigation }) {
   // setMessages entirely so the list doesn't re-render, and skip the
   // redundant mark-read round trip.
   const lastFpRef = useRef('');
+  const pollBusyRef = useRef(false);
   const fingerprint = (msgs) => msgs.map((m) =>
     `${m.id}:${m.readBy?.length || 0}:${Object.values(m.reactions || {}).reduce((s, a) => s + a.length, 0)}`
   ).join('|');
 
   const load = async (silent = false) => {
+    // On a slow tunnel one fetch can outlive the 3s poll interval — skip the
+    // tick instead of stacking requests that can resolve out of order
+    if (silent && pollBusyRef.current) return;
+    pollBusyRef.current = true;
     try {
       const data = await fetchMessages(conversation.id);
       if (!mountedRef.current) return;
@@ -174,6 +179,7 @@ export default function ChatScreen({ route, navigation }) {
       // count drops without needing a manual refresh on the Messages screen
       markConversationRead(conversation.id).then(refreshBadges).catch(() => {});
     } catch { if (mountedRef.current && !silent) setLoading(false); }
+    finally { pollBusyRef.current = false; }
   };
 
   useEffect(() => {
@@ -199,8 +205,17 @@ export default function ChatScreen({ route, navigation }) {
     return () => { show.remove(); hide.remove(); };
   }, []);
 
+  // Only auto-scroll to new messages when the user is already at (or near)
+  // the bottom — never yank them away while they're reading history.
+  // Own sends always scroll (nearBottomRef is forced true first).
+  const nearBottomRef = useRef(true);
+  const handleScroll = (e) => {
+    const { contentOffset, layoutMeasurement, contentSize } = e.nativeEvent;
+    nearBottomRef.current = contentOffset.y + layoutMeasurement.height >= contentSize.height - 120;
+  };
+
   useEffect(() => {
-    if (messages.length > 0) {
+    if (messages.length > 0 && nearBottomRef.current) {
       setTimeout(() => listRef.current?.scrollToEnd({ animated: false }), 60);
     }
   }, [messages.length]);
@@ -208,31 +223,39 @@ export default function ChatScreen({ route, navigation }) {
   const handleSend = async () => {
     const trimmed = text.trim();
     if (!trimmed || sending) return;
+    const prevReply = replyTo;
     const replyId = replyTo?.id || null;
     setSending(true);
     setText('');
     setReplyTo(null);
+    nearBottomRef.current = true;
     try {
       const msg = await sendMessage(conversation.id, trimmed, null, replyId);
       setMessages((prev) => [...prev, msg]);
       markConversationRead(conversation.id).catch(() => {});
-    } catch { setText(trimmed); }
+    } catch {
+      // Restore the draft AND the reply target so nothing is lost
+      setText(trimmed);
+      setReplyTo(prevReply);
+    }
     finally { setSending(false); }
   };
 
   const handleSendGif = async (gif) => {
     setShowGifPicker(false);
     setSending(true);
+    nearBottomRef.current = true;
     try {
       const msg = await sendMessage(conversation.id, '', gif.gifUrl);
       setMessages((prev) => [...prev, msg]);
-    } catch { }
+    } catch { Alert.alert('Error', 'Could not send GIF. Check your connection.'); }
     finally { setSending(false); }
   };
 
   const handleSendMedia = async (uri, mimeType) => {
     setShowAttachMenu(false);
     setSending(true);
+    nearBottomRef.current = true;
     try {
       const msg = await sendChatMedia(conversation.id, uri, mimeType);
       setMessages((prev) => [...prev, msg]);
@@ -310,7 +333,9 @@ export default function ChatScreen({ route, navigation }) {
         style={styles.list}
         contentContainerStyle={styles.listContent}
         keyboardShouldPersistTaps="handled"
-        onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
+        onScroll={handleScroll}
+        scrollEventThrottle={100}
+        onContentSizeChange={() => { if (nearBottomRef.current) listRef.current?.scrollToEnd({ animated: false }); }}
         ListEmptyComponent={
           <View style={styles.emptyWrap}>
             <Text style={[styles.emptyText, { color: colors.textSub }]}>No messages yet</Text>

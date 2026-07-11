@@ -38,13 +38,14 @@ export default function NotificationsScreen({ navigation }) {
 
   const load = async () => {
     const [notifs, convos] = await Promise.all([
-      fetchNotifications().catch(() => []),
-      fetchConversations().catch(() => []),
+      fetchNotifications().catch(() => null),
+      fetchConversations().catch(() => null),
     ]);
-    setItems(notifs);
-    setUnreadConvos(convos.filter((c) => (c.unreadCount || 0) > 0));
-    // Everything is displayed now — clear the bell badge
-    markNotificationsSeen().then(refresh).catch(() => {});
+    // Keep last known content on a failed fetch instead of wiping to empty
+    if (notifs) setItems(notifs);
+    if (convos) setUnreadConvos(convos.filter((c) => (c.unreadCount || 0) > 0));
+    // Only clear the bell badge when the list actually rendered
+    if (notifs) markNotificationsSeen().then(refresh).catch(() => {});
   };
 
   useFocusEffect(useCallback(() => {

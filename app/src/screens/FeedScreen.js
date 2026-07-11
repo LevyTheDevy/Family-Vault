@@ -55,9 +55,10 @@ export default function FeedScreen({ navigation }) {
   const load = async () => {
     await Promise.all([
       loadFeed(true),
-      fetchStories().catch(() => []).then((s) =>
-        setStories(s.filter((st) => !st.expiresAt || new Date(st.expiresAt) > new Date()))
-      ),
+      // Keep the last known stories if the fetch fails — don't wipe the strip
+      fetchStories().catch(() => null).then((s) => {
+        if (s) setStories(s.filter((st) => !st.expiresAt || new Date(st.expiresAt) > new Date()));
+      }),
     ]);
     lastFetchRef.current = Date.now();
   };
@@ -70,8 +71,9 @@ export default function FeedScreen({ navigation }) {
       // An upload targeting a different vault must not leak into this feed
       if (item.vaultUrl !== getVaultUrl()) return;
       if (item.kind === 'story') {
-        fetchStories().catch(() => []).then((s) =>
-          setStories(s.filter((st) => !st.expiresAt || new Date(st.expiresAt) > new Date())));
+        fetchStories().catch(() => null).then((s) => {
+          if (s) setStories(s.filter((st) => !st.expiresAt || new Date(st.expiresAt) > new Date()));
+        });
       } else if (result) {
         setPosts((prev) => [result, ...prev.filter((p) => p.id !== result.id)]);
         offsetRef.current += 1;
