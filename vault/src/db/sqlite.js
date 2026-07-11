@@ -319,6 +319,20 @@ for (const colDef of ['feed_filename TEXT', 'thumb_filename TEXT']) {
   try { sql.exec(`ALTER TABLE post_images ADD COLUMN ${colDef}`); } catch {}
 }
 
+// Indexes for hot lookups. Compound-PK tables (post_images, post_likes, post_saves,
+// story_views, message_reads, conversation_members) already index their leading
+// column via the PK; these cover the tables whose PK doesn't match query patterns.
+sql.exec(`
+  CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id);
+  CREATE INDEX IF NOT EXISTS idx_comments_post          ON comments(post_id);
+  CREATE INDEX IF NOT EXISTS idx_collection_posts_post  ON collection_posts(post_id);
+  CREATE INDEX IF NOT EXISTS idx_story_clips_story      ON story_clips(story_id);
+  CREATE INDEX IF NOT EXISTS idx_post_videos_post       ON post_videos(post_id);
+  CREATE INDEX IF NOT EXISTS idx_posts_author           ON posts(author);
+  CREATE INDEX IF NOT EXISTS idx_stories_author         ON stories(author);
+  CREATE INDEX IF NOT EXISTS idx_stories_expires        ON stories(expires_at);
+`);
+
 // ─── Row normalizers ─────────────────────────────────────────────────────────
 function postExtras(postId) {
   const imageRows = sql.prepare('SELECT filename, feed_filename, thumb_filename FROM post_images WHERE post_id = ? ORDER BY position').all(postId);

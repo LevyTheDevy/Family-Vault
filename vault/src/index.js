@@ -1,4 +1,5 @@
 const express = require('express');
+const compression = require('compression');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
@@ -24,15 +25,25 @@ const PORT = parseInt(process.env.PORT) || 3000;
 
 app.set('trust proxy', true);
 app.use(cors({ origin: (origin, cb) => cb(null, true), credentials: true }));
+// Gzip JSON responses (encrypted hex text compresses ~2x). Media is skipped:
+// encrypted blobs don't compress and it would waste CPU on the Pi.
+app.use(compression({
+  filter: (req, res) => !req.path.startsWith('/storage') && compression.filter(req, res),
+}));
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: false, limit: '1mb' }));
 
-// Protected media — JWT required
+// Protected media — JWT required.
+// Filenames are unique per upload (timestamp + random hex) and never rewritten,
+// so clients may cache them forever.
 app.get('/storage/:filename', (req, res) => {
   try {
     jwt.verify((req.headers.authorization || req.query.token || '').replace('Bearer ', ''), JWT_SECRET);
   } catch { return res.status(401).end(); }
-  res.sendFile(path.join(STORAGE_DIR, path.basename(req.params.filename)));
+  res.sendFile(path.join(STORAGE_DIR, path.basename(req.params.filename)), {
+    maxAge: '365d',
+    immutable: true,
+  });
 });
 
 app.use(authRoutes);
