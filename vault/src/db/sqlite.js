@@ -381,6 +381,13 @@ function ensureAllMembersCollection() {
 const ALL_MEMBERS_ID = ensureAllMembersCollection();
 
 // ─── Row normalizers ─────────────────────────────────────────────────────────
+
+// SQLite's datetime('now') is UTC but lacks the 'Z' marker, so JS clients
+// parse it as LOCAL time — every "time ago" label ends up shifted by the
+// timezone offset (fresh posts show "just now" for hours). Normalize to
+// ISO-8601 UTC at the API boundary. Legacy ISO rows pass through untouched.
+const iso = (s) => (typeof s === 'string' && s.length === 19 && s[10] === ' ') ? s.replace(' ', 'T') + 'Z' : s;
+
 function postExtras(postId, includeViewers = false) {
   const imageRows = sql.prepare('SELECT filename, feed_filename, thumb_filename FROM post_images WHERE post_id = ? ORDER BY position').all(postId);
   const videoClipRows = sql.prepare('SELECT filename, thumb_filename, duration_secs FROM post_videos WHERE post_id = ? ORDER BY position').all(postId);
@@ -396,7 +403,7 @@ function postExtras(postId, includeViewers = false) {
     // Viewer identities are author-only, same rule as story viewers
     ...(includeViewers ? {
       views: sql.prepare('SELECT member_name, viewed_at FROM post_views WHERE post_id = ? ORDER BY viewed_at').all(postId)
-        .map(r => ({ viewer: r.member_name, viewedAt: r.viewed_at })),
+        .map(r => ({ viewer: r.member_name, viewedAt: iso(r.viewed_at) })),
     } : {}),
   };
 }
@@ -408,13 +415,13 @@ function normalizePost(row, requestingMember = null) {
     id: row.id, author: row.author, caption: row.caption,
     mediaType: row.media_type, videoFilename: row.video_filename,
     thumbnailFilename: row.thumbnail_filename, durationSecs: row.duration_secs,
-    createdAt: row.created_at, ...postExtras(row.id, isOwner),
+    createdAt: iso(row.created_at), ...postExtras(row.id, isOwner),
   };
 }
 
 function normalizeComment(row) {
   return { id: row.id, author: row.author, text: row.text, gifUrl: row.gif_url,
-    imageX: row.image_x, imageY: row.image_y, imageIndex: row.image_index, createdAt: row.created_at };
+    imageX: row.image_x, imageY: row.image_y, imageIndex: row.image_index, createdAt: iso(row.created_at) };
 }
 
 function normalizeStory(row) {
@@ -422,10 +429,10 @@ function normalizeStory(row) {
   const clipRows = sql.prepare('SELECT filename, thumb_filename, duration_secs FROM story_clips WHERE story_id = ? ORDER BY position').all(row.id);
   return {
     id: row.id, filename: row.filename, author: row.author, caption: row.caption,
-    durationHours: row.duration_hours, expiresAt: row.expires_at, createdAt: row.created_at,
+    durationHours: row.duration_hours, expiresAt: row.expires_at, createdAt: iso(row.created_at),
     clips:     clipRows.map(r => ({ filename: r.filename, thumbFilename: r.thumb_filename, durationSecs: r.duration_secs })),
-    views:     sql.prepare('SELECT viewer, viewed_at FROM story_views WHERE story_id = ?').all(row.id).map(v => ({ viewer: v.viewer, viewedAt: v.viewed_at })),
-    reactions: sql.prepare('SELECT author, emoji, created_at FROM story_reactions WHERE story_id = ?').all(row.id).map(r => ({ author: r.author, emoji: r.emoji, createdAt: r.created_at })),
+    views:     sql.prepare('SELECT viewer, viewed_at FROM story_views WHERE story_id = ?').all(row.id).map(v => ({ viewer: v.viewer, viewedAt: iso(v.viewed_at) })),
+    reactions: sql.prepare('SELECT author, emoji, created_at FROM story_reactions WHERE story_id = ?').all(row.id).map(r => ({ author: r.author, emoji: r.emoji, createdAt: iso(r.created_at) })),
     likes:     sql.prepare('SELECT member_name FROM story_likes WHERE story_id = ?').all(row.id).map(r => r.member_name),
   };
 }
@@ -444,14 +451,14 @@ function normalizeMessage(row, requestingMember = null) {
     text: row.text, gifUrl: row.gif_url, imageUrl: row.image_url, videoUrl: row.video_url,
     replyToId: row.reply_to_id,
     replyPreview: row.reply_preview_author ? { id: row.reply_to_id, author: row.reply_preview_author, text: row.reply_preview_text } : null,
-    postRef, reactions, readBy, createdAt: row.created_at,
+    postRef, reactions, readBy, createdAt: iso(row.created_at),
   };
 }
 
 function normalizeCollection(row) {
   if (!row) return null;
   return {
-    id: row.id, name: row.name, author: row.author, createdAt: row.created_at,
+    id: row.id, name: row.name, author: row.author, createdAt: iso(row.created_at),
     memberNames: sql.prepare('SELECT member_name FROM collection_members WHERE collection_id = ?').all(row.id).map(r => r.member_name),
     postIds:     sql.prepare('SELECT post_id FROM collection_posts WHERE collection_id = ? ORDER BY added_at').all(row.id).map(r => r.post_id),
   };
@@ -630,6 +637,9 @@ const db = {
       sql.prepare('DELETE FROM posts WHERE author = ?').run(memberName);
       sql.prepare('DELETE FROM stories WHERE author = ?').run(memberName);
       sql.prepare('DELETE FROM collections WHERE author = ?').run(memberName);
+      // collection_posts has no FK to posts — drop rows pointing at the
+      // just-deleted posts so collection counts stay accurate
+      sql.prepare('DELETE FROM collection_posts WHERE post_id NOT IN (SELECT id FROM posts)').run();
 
       // Delete DM conversations they're part of
       for (const c of sql.prepare(`SELECT c.id FROM conversations c JOIN conversation_members cm ON c.id = cm.conversation_id WHERE c.is_dm = 1 AND cm.member_name = ? COLLATE NOCASE`).all(memberName))
@@ -843,7 +853,11 @@ const db = {
   },
 
   getActiveStories() {
-    return sql.prepare("SELECT * FROM stories WHERE expires_at > datetime('now')").all().map(normalizeStory);
+    // expires_at is an ISO string ('...T...Z') while datetime('now') is
+    // 'YYYY-MM-DD HH:MM:SS' — comparing the two lexicographically made every
+    // story created "today" non-expired until the UTC date rolled over.
+    // Compare ISO-to-ISO instead.
+    return sql.prepare('SELECT * FROM stories WHERE expires_at > ?').all(new Date().toISOString()).map(normalizeStory);
   },
 
   deleteStory(id, requestingMember) {
@@ -858,21 +872,22 @@ const db = {
   },
 
   purgeExpiredStories() {
-    const expiredRows = sql.prepare("SELECT id, filename FROM stories WHERE expires_at <= datetime('now')").all();
+    const nowIso = new Date().toISOString();
+    const expiredRows = sql.prepare('SELECT id, filename FROM stories WHERE expires_at <= ?').all(nowIso);
     if (!expiredRows.length) return [];
     const files = expiredRows.map(r => r.filename);
     for (const s of expiredRows) {
       sql.prepare('SELECT filename, thumb_filename FROM story_clips WHERE story_id = ?').all(s.id)
         .forEach(r => { files.push(r.filename); if (r.thumb_filename) files.push(r.thumb_filename); });
     }
-    sql.prepare("DELETE FROM stories WHERE expires_at <= datetime('now')").run();
+    sql.prepare('DELETE FROM stories WHERE expires_at <= ?').run(nowIso);
     return files;
   },
 
   recordStoryView(storyId, memberName) {
     sql.prepare('INSERT OR IGNORE INTO story_views (story_id, viewer) VALUES (?,?)').run(storyId, memberName);
     return sql.prepare('SELECT viewer, viewed_at FROM story_views WHERE story_id = ?').all(storyId)
-      .map(v => ({ viewer: v.viewer, viewedAt: v.viewed_at }));
+      .map(v => ({ viewer: v.viewer, viewedAt: iso(v.viewed_at) }));
   },
 
   toggleStoryReaction(storyId, memberName, emoji) {
@@ -885,7 +900,7 @@ const db = {
       sql.prepare('INSERT INTO story_reactions (story_id, author, emoji) VALUES (?,?,?)').run(storyId, memberName, emoji);
     }
     return sql.prepare('SELECT author, emoji, created_at FROM story_reactions WHERE story_id = ?').all(storyId)
-      .map(r => ({ author: r.author, emoji: r.emoji, createdAt: r.created_at }));
+      .map(r => ({ author: r.author, emoji: r.emoji, createdAt: iso(r.created_at) }));
   },
 
   getStoryViewers(storyId, requestingMember) {
@@ -893,8 +908,8 @@ const db = {
     if (!s) throw new Error('Story not found');
     if (s.author !== requestingMember) throw new Error('Only the story author can see viewers');
     return {
-      views:     sql.prepare('SELECT viewer, viewed_at FROM story_views WHERE story_id = ?').all(storyId).map(v => ({ viewer: v.viewer, viewedAt: v.viewed_at })),
-      reactions: sql.prepare('SELECT author, emoji, created_at FROM story_reactions WHERE story_id = ?').all(storyId).map(r => ({ author: r.author, emoji: r.emoji, createdAt: r.created_at })),
+      views:     sql.prepare('SELECT viewer, viewed_at FROM story_views WHERE story_id = ?').all(storyId).map(v => ({ viewer: v.viewer, viewedAt: iso(v.viewed_at) })),
+      reactions: sql.prepare('SELECT author, emoji, created_at FROM story_reactions WHERE story_id = ?').all(storyId).map(r => ({ author: r.author, emoji: r.emoji, createdAt: iso(r.created_at) })),
     };
   },
 
@@ -1039,7 +1054,7 @@ const db = {
         ? sql.prepare(`SELECT COUNT(*) AS n FROM messages m WHERE m.conversation_id = ? AND NOT EXISTS (SELECT 1 FROM message_reads mr WHERE mr.message_id = m.id AND mr.member_name = ? COLLATE NOCASE)`).get(c.id, memberName).n
         : 0;
       return {
-        id: c.id, name: c.name, isDM: !!c.is_dm, createdBy: c.created_by, createdAt: c.created_at,
+        id: c.id, name: c.name, isDM: !!c.is_dm, createdBy: c.created_by, createdAt: iso(c.created_at),
         memberNames, lastMessage: last ? normalizeMessage(last) : null, messageCount: msgCount, unreadCount: unread,
       };
     }).sort((a, b) => {
@@ -1187,7 +1202,7 @@ const db = {
       .map(n => ({
         id: n.id, type: n.type, actor: n.actor, postId: n.post_id,
         conversationId: n.conversation_id, seen: !!n.seen,
-        createdAt: n.created_at, thumbFile: n.thumb_file || null,
+        createdAt: iso(n.created_at), thumbFile: n.thumb_file || null,
       }));
   },
 
@@ -1227,7 +1242,7 @@ const db = {
     return {
       memberCount:      sql.prepare('SELECT COUNT(*) AS n FROM members').get().n,
       postCount:        sql.prepare('SELECT COUNT(*) AS n FROM posts').get().n,
-      activeStoryCount: sql.prepare("SELECT COUNT(*) AS n FROM stories WHERE expires_at > datetime('now')").get().n,
+      activeStoryCount: sql.prepare('SELECT COUNT(*) AS n FROM stories WHERE expires_at > ?').get(new Date().toISOString()).n,
       messageCount:     sql.prepare('SELECT COUNT(*) AS n FROM messages').get().n,
     };
   },

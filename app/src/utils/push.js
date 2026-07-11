@@ -42,14 +42,29 @@ export async function registerForPush() {
 
 // Tapping a push routes to the relevant tab. Returns the unsubscribe fn.
 export function listenForPushTaps() {
-  const sub = Notifications.addNotificationResponseReceivedListener((resp) => {
+  let cancelled = false;
+
+  const routeTo = (resp, attempts = 0) => {
+    if (cancelled) return;
     const data = resp?.notification?.request?.content?.data || {};
-    if (!navigationRef.isReady()) return;
+    if (!data.type) return;
+    if (!navigationRef.isReady()) {
+      // Cold start: navigation mounts after the tap lands — retry briefly
+      if (attempts < 12) setTimeout(() => routeTo(resp, attempts + 1), 400);
+      return;
+    }
     if (data.type === 'message') {
       navigationRef.navigate('Main', { screen: 'Messages' });
-    } else if (data.type) {
+    } else {
       navigationRef.navigate('Main', { screen: 'Feed', params: { screen: 'Notifications' } });
     }
-  });
-  return () => sub.remove();
+  };
+
+  const sub = Notifications.addNotificationResponseReceivedListener(routeTo);
+  // The tap that launched the app fires before this listener attaches
+  Notifications.getLastNotificationResponseAsync?.()
+    .then((resp) => { if (resp) routeTo(resp); })
+    .catch(() => {});
+
+  return () => { cancelled = true; sub.remove(); };
 }

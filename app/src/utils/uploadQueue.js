@@ -37,6 +37,10 @@ async function persist() {
 function update(id, patch) {
   const it = items.find((i) => i.id === id);
   if (!it) return;
+  // XHR fires onprogress very frequently and every emit re-renders the feed
+  // list — skip progress-only changes under 1%
+  const progressOnly = patch.status === undefined && (patch.stage === undefined || patch.stage === it.stage);
+  if (progressOnly && patch.progress !== undefined && Math.abs(patch.progress - (it.progress || 0)) < 0.01) return;
   Object.assign(it, patch);
   emit();
 }

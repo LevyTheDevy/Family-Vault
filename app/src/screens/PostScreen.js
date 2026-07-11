@@ -366,7 +366,10 @@ function CaptionStep({ assets, editedAssets, filterIdx, trimmedVideo, onBack, on
   // Optimistic posting: hand the work to the background upload queue and
   // return to the feed immediately — the pending slide there shows progress
   // and surfaces retry/discard if the upload fails.
+  const postedRef = useRef(false);
   const handlePost = () => {
+    if (postedRef.current) return; // instant button — guard double-taps
+    postedRef.current = true;
     if (isVideo && trimmedVideo) {
       enqueueVideo({
         videoUri: trimmedVideo.uri,

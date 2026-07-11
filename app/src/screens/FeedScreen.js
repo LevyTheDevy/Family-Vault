@@ -5,7 +5,7 @@ import PostSlide from '../components/PostSlide';
 import PendingPostSlide from '../components/PendingPostSlide';
 import StoriesStrip from '../components/StoriesStrip';
 import CommentsSheet from '../components/CommentsSheet';
-import { fetchPosts, fetchStories, getMemberName, consumeFeedDirty } from '../utils/api';
+import { fetchPosts, fetchStories, getMemberName, consumeFeedDirty, getVaultUrl } from '../utils/api';
 import { subscribeQueue, onUploadComplete, retryUpload, discardUpload } from '../utils/uploadQueue';
 import { useTheme } from '../context/ThemeContext';
 import { useVault } from '../context/VaultContext';
@@ -67,6 +67,8 @@ export default function FeedScreen({ navigation }) {
   useEffect(() => {
     const unsubList = subscribeQueue(setPendingUploads);
     const unsubDone = onUploadComplete((item, result) => {
+      // An upload targeting a different vault must not leak into this feed
+      if (item.vaultUrl !== getVaultUrl()) return;
       if (item.kind === 'story') {
         fetchStories().catch(() => []).then((s) =>
           setStories(s.filter((st) => !st.expiresAt || new Date(st.expiresAt) > new Date())));
@@ -80,8 +82,10 @@ export default function FeedScreen({ navigation }) {
     return () => { unsubList(); unsubDone(); };
   }, []);
 
-  const pendingPosts = pendingUploads.filter((i) => i.kind !== 'story');
-  const pendingStories = pendingUploads.filter((i) => i.kind === 'story');
+  // Only show pending items that belong to the vault currently on screen
+  const vaultPending = pendingUploads.filter((i) => i.vaultUrl === getVaultUrl());
+  const pendingPosts = vaultPending.filter((i) => i.kind !== 'story');
+  const pendingStories = vaultPending.filter((i) => i.kind === 'story');
 
   const handlePendingStoryPress = useCallback((item) => {
     if (item.status !== 'failed') return;

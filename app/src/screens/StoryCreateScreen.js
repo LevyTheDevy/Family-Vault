@@ -85,7 +85,10 @@ export default function StoryCreateScreen({ navigation }) {
 
   // Optimistic posting: the background queue encrypts + uploads; the stories
   // strip shows a "Posting…" ring (or tap-to-retry on failure)
+  const postedRef = useRef(false);
   const handlePost = () => {
+    if (postedRef.current) return; // instant button — guard double-taps
+    postedRef.current = true;
     if (trimmedVideo) {
       enqueueStory({
         videoUri: trimmedVideo.uri,
