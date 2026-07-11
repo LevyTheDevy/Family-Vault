@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { View, FlatList, StyleSheet, RefreshControl, Text, ActivityIndicator } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useScrollToTop } from '@react-navigation/native';
 import PostSlide from '../components/PostSlide';
 import StoriesStrip from '../components/StoriesStrip';
 import CommentsSheet from '../components/CommentsSheet';
@@ -30,6 +30,9 @@ export default function FeedScreen({ navigation }) {
   const listHeightRef = useRef(0);
   const fetchingRef = useRef(false);
   const hasDataRef = useRef(false);
+  const listRef = useRef(null);
+  // Tapping the Feed tab while already on it scrolls back to the top
+  useScrollToTop(listRef);
 
   async function loadFeed(reset = true) {
     const off = reset ? 0 : offsetRef.current;
@@ -66,7 +69,8 @@ export default function FeedScreen({ navigation }) {
   }, []);
 
   useFocusEffect(useCallback(() => {
-    const stale = consumeFeedDirty() || Date.now() - lastFetchRef.current > STALE_MS;
+    const dirty = consumeFeedDirty();
+    const stale = dirty || Date.now() - lastFetchRef.current > STALE_MS;
     let active = true;
 
     if (!stale && hasDataRef.current) {
@@ -81,6 +85,10 @@ export default function FeedScreen({ navigation }) {
       // Only show full spinner on first load; background refresh keeps existing posts visible
       if (!hasDataRef.current) setLoading(true);
       load()
+        .then(() => {
+          // Just posted — jump to the top so the new post is what you see
+          if (dirty && active) listRef.current?.scrollToOffset({ offset: 0, animated: false });
+        })
         .catch(() => {})
         .finally(() => { fetchingRef.current = false; if (active) setLoading(false); });
     }
@@ -170,6 +178,7 @@ export default function FeedScreen({ navigation }) {
         </View>
       ) : (
         <FlatList
+          ref={listRef}
           style={styles.list}
           data={posts}
           keyExtractor={(p) => String(p.id)}

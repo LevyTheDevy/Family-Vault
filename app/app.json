@@ -23,17 +23,20 @@
         "android.permission.CAMERA",
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.WRITE_EXTERNAL_STORAGE",
-        "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO"
       ]
     },
     "ios": {
-      "bundleIdentifier": "com.famvault.app"
+      "bundleIdentifier": "com.famvault.app",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "plugins": [
       "expo-camera",
       "expo-image-picker",
       "expo-secure-store",
+      "expo-notifications",
       "./plugins/withCleartextTraffic"
     ],
     "extra": {

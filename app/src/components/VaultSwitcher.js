@@ -3,8 +3,10 @@ import {
   View, Text, TouchableOpacity, Modal, StyleSheet, Platform,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
 import { useVault } from '../context/VaultContext';
 import { useTheme } from '../context/ThemeContext';
+import { useUnread } from '../context/UnreadContext';
 import { navigationRef } from '../utils/navigation';
 
 export function VaultSwitcherButton() {
@@ -92,14 +94,21 @@ export function VaultSwitcherButton() {
 
 export function NotificationBell() {
   const { colors } = useTheme();
+  const { unseenNotifs } = useUnread();
+  const navigation = useNavigation();
   return (
     <TouchableOpacity
       style={styles.bell}
       hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-      onPress={() => {}}
+      onPress={() => navigation.navigate('Notifications')}
       activeOpacity={0.6}
     >
       <Feather name="bell" size={20} color={colors.text} />
+      {unseenNotifs > 0 && (
+        <View style={styles.bellBadge}>
+          <Text style={styles.bellBadgeText}>{unseenNotifs > 9 ? '9+' : unseenNotifs}</Text>
+        </View>
+      )}
     </TouchableOpacity>
   );
 }
@@ -117,6 +126,12 @@ const styles = StyleSheet.create({
   },
   chipText: { fontSize: 13, fontWeight: '600', flexShrink: 1 },
   bell: { marginRight: 14 },
+  bellBadge: {
+    position: 'absolute', top: -5, right: -7,
+    minWidth: 15, height: 15, borderRadius: 8, paddingHorizontal: 3,
+    backgroundColor: '#e53935', alignItems: 'center', justifyContent: 'center',
+  },
+  bellBadgeText: { color: '#fff', fontSize: 9, fontWeight: '700' },
 
   backdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)' },
   sheet: {

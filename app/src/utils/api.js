@@ -307,6 +307,9 @@ export async function uploadPhotos(imageUris, caption = '', collectionId = null)
   });
   const encCaption = await encryptMsg(caption);
   if (encCaption) fd.append('caption', encCaption);
+  // Server files the post into this collection at creation (falls back to All
+  // Members) so new-post notifications only reach people who can see it
+  if (collectionId) fd.append('collectionId', String(collectionId));
   console.log('[FV] uploadPhotos: POSTing to', `${_url}/posts`);
   const post = await req(`${_url}/posts`, { method: 'POST', headers: h(), body: fd });
   console.log('[FV] uploadPhotos: success, post id', post?.id);
@@ -339,6 +342,7 @@ export async function uploadVideo(videoUri, thumbnailUri = null, caption = '', d
   const encCaption = await encryptMsg(caption);
   if (encCaption) fd.append('caption', encCaption);
   if (durationSecs != null) fd.append('durationSecs', String(durationSecs));
+  if (collectionId) fd.append('collectionId', String(collectionId));
   if (onProgress) onProgress(0.5); // indeterminate for small uploads
   const post = await req(`${_url}/posts`, { method: 'POST', headers: h(), body: fd });
   markFeedDirty();
@@ -412,7 +416,7 @@ async function uploadVideoChunked(videoUri, thumbnailUri, caption, durationSecs,
   const encCaption = await encryptMsg(caption);
   const post = await req(`${_url}/posts/from-upload`, {
     method: 'POST', headers: jh(),
-    body: JSON.stringify({ videoFilename, thumbnailFilename, caption: encCaption, durationSecs }),
+    body: JSON.stringify({ videoFilename, thumbnailFilename, caption: encCaption, durationSecs, collectionId }),
   });
   markFeedDirty();
   if (collectionId) await addToCollection(collectionId, post.id).catch(() => {});
@@ -446,6 +450,7 @@ export async function uploadEncryptedVideo(encVideoUri, encThumbUri, caption = '
   if (durationSecs != null) fd.append('durationSecs', String(Math.round(durationSecs)));
   const encCaption = await encryptMsg(caption);
   if (encCaption) fd.append('caption', encCaption);
+  if (collectionId) fd.append('collectionId', String(collectionId));
   if (onProgress) onProgress(0.5);
   const post = await req(`${_url}/posts`, { method: 'POST', headers: h(), body: fd });
   markFeedDirty();
@@ -632,3 +637,18 @@ export const searchGifs = (q) =>
 
 export const likeDaily = (id) =>
   req(`${_url}/stories/${id}/like`, { method: 'POST', headers: h() });
+
+// Notifications
+export const fetchNotifications = () =>
+  req(`${_url}/notifications`, { headers: h() })
+    .then((items) => items.map((n) => ({ ...n, thumbUrl: withToken(n.thumbUrl) })));
+
+export const markNotificationsSeen = () =>
+  req(`${_url}/notifications/seen`, { method: 'POST', headers: h() });
+
+// { unseenNotifications, unreadMessages } — cheap poll for the badges
+export const fetchNotifSummary = () =>
+  req(`${_url}/notifications/summary`, { headers: h() });
+
+export const registerPushToken = (token) =>
+  req(`${_url}/push/register`, { method: 'POST', headers: jh(), body: JSON.stringify({ token }) });

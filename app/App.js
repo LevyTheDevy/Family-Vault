@@ -17,6 +17,7 @@ import OfflineCollectionScreen from './src/screens/OfflineCollectionScreen';
 import MessagesScreen from './src/screens/MessagesScreen';
 import ChatScreen from './src/screens/ChatScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
+import NotificationsScreen from './src/screens/NotificationsScreen';
 import ThemeScreen from './src/screens/ThemeScreen';
 import StoryViewScreen from './src/screens/StoryViewScreen';
 import StoryCreateScreen from './src/screens/StoryCreateScreen';
@@ -28,6 +29,7 @@ import { ToastProvider } from './src/context/ToastContext';
 import { VaultProvider, useVault } from './src/context/VaultContext';
 import { VaultSwitcherButton, NotificationBell } from './src/components/VaultSwitcher';
 import { pruneDecryptedCache } from './src/components/CachedImage';
+import { registerForPush, listenForPushTaps } from './src/utils/push';
 import ResetPasswordScreen from './src/screens/ResetPasswordScreen';
 import JoinScreen from './src/screens/JoinScreen';
 import { navigationRef } from './src/utils/navigation';
@@ -72,6 +74,7 @@ function FeedStackScreen() {
           }}
         />
       <FeedStack.Screen name="Post" component={PostScreen} options={{ title: 'New Post' }} />
+      <FeedStack.Screen name="Notifications" component={NotificationsScreen} options={{ title: 'Notifications' }} />
       <FeedStack.Screen name="StoryCreate" component={StoryCreateScreen} options={{ headerShown: false }} />
     </FeedStack.Navigator>
   );
@@ -187,7 +190,7 @@ function MainTabs() {
 function AppInner() {
   const [initialRoute, setInitialRoute] = useState(null);
   const { colors, bgImageUri, isLight } = useTheme();
-  const { vaults, ready, cryptoReady } = useVault();
+  const { vaults, ready, cryptoReady, activeIndex } = useVault();
 
   useEffect(() => {
     if (!ready) return;
@@ -197,6 +200,14 @@ function AppInner() {
     else if (cryptoReady) setInitialRoute('Main');
     else setInitialRoute('Auth');
   }, [ready]);
+
+  // Register the device push token with whichever vault is active
+  useEffect(() => {
+    if (!ready || vaults.length === 0) return;
+    registerForPush();
+  }, [ready, cryptoReady, activeIndex]);
+
+  useEffect(() => listenForPushTaps(), []);
 
   if (!initialRoute) {
     return (

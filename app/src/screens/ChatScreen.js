@@ -91,7 +91,7 @@ function SwipeRow({ onReply, children }) {
 export default function ChatScreen({ route, navigation }) {
   const { conversation } = route.params;
   const { colors, isLight } = useTheme();
-  const { updateFromConversations } = useUnread();
+  const { refresh: refreshBadges } = useUnread();
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
@@ -170,7 +170,9 @@ export default function ChatScreen({ route, navigation }) {
       lastFpRef.current = fp;
       setMessages(data);
       if (!silent) setLoading(false);
-      markConversationRead(conversation.id).catch(() => {});
+      // Refresh badges once the server confirms the read, so the unread
+      // count drops without needing a manual refresh on the Messages screen
+      markConversationRead(conversation.id).then(refreshBadges).catch(() => {});
     } catch { if (mountedRef.current && !silent) setLoading(false); }
   };
 

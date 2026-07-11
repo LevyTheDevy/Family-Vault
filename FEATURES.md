@@ -24,6 +24,7 @@ This document covers what is built and working in the current version. FamilyVau
 
 ### Collections
 - Shared photo albums between selected family members
+- Built-in "All Members" collection — every post made without picking a collection lands here automatically, so the full family archive is always browsable
 - Save any feed post to a collection
 - Per-collection member access control
 - Offline collection: save posts to device for offline viewing
@@ -39,6 +40,12 @@ This document covers what is built and working in the current version. FamilyVau
 - Read receipts and delivery indicators
 - Unread badge count on tab bar
 - Lock icon on each message confirming encryption
+
+### Notifications
+- In-app notification center (bell icon on the feed): likes, comments, new posts, unread chats
+- Unseen-count badge on the bell, unread-message badge on the Messages tab
+- OS push notifications via Expo push service (new messages, posts, likes, comments)
+- Push content is generic by design — names and event type only, never decrypted content
 
 ### Settings
 - Display name and password change
@@ -119,7 +126,6 @@ This document covers what is built and working in the current version. FamilyVau
 
 - iOS requires TestFlight — no App Store listing
 - Android requires sideloading — not on Google Play
-- No push notifications
 - No web client
 - Single vault key shared across all members (no per-member key isolation)
 - Admin panel has no per-post moderation tools — content removal requires direct server access
