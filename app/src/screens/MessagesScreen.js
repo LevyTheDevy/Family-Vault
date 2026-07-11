@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useLayoutEffect, useEffect } from 'react';
+import React, { useState, useCallback, useLayoutEffect, useEffect, useRef } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, StyleSheet,
   Alert, Modal, TextInput, ActivityIndicator, RefreshControl, ScrollView,
@@ -33,6 +33,9 @@ export default function MessagesScreen({ navigation }) {
   const [newName, setNewName] = useState('');
   const [creating, setCreating] = useState(false);
   const me = getMemberName();
+  const lastFetchRef = useRef(0);
+  const fetchingRef = useRef(false);
+  const STALE_MS = 20_000;
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -60,13 +63,20 @@ export default function MessagesScreen({ navigation }) {
   };
 
   useFocusEffect(useCallback(() => {
+    if (fetchingRef.current) return;
+    const stale = Date.now() - lastFetchRef.current > STALE_MS;
+    if (!stale && lastFetchRef.current > 0) return;
+
+    fetchingRef.current = true;
     setLoading(true);
-    Promise.all([loadConvos(), loadMembers()]).finally(() => setLoading(false));
+    Promise.all([loadConvos(), loadMembers()])
+      .finally(() => { lastFetchRef.current = Date.now(); fetchingRef.current = false; setLoading(false); });
   }, []));
 
   const onRefresh = async () => {
     setRefreshing(true);
     await Promise.all([loadConvos(), loadMembers()]);
+    lastFetchRef.current = Date.now();
     setRefreshing(false);
   };
 

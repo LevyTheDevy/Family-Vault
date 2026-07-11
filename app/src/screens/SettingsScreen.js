@@ -51,6 +51,7 @@ export default function SettingsScreen({ navigation }) {
   const themeLabel = mode === 'dark' ? 'Dark' : mode === 'light' ? 'Light' : 'Custom';
 
 
+  const [uploading, setUploading] = useState(false);
   const [sheet, setSheet] = useState(null); // 'name' | 'password' | null
   const [nameInput, setNameInput] = useState('');
   const [currentPw, setCurrentPw] = useState('');
@@ -70,6 +71,7 @@ export default function SettingsScreen({ navigation }) {
 
   // ── Profile picture ────────────────────────────────────────────────────────
   const handleChangePic = () => {
+    if (uploading) return;
     Alert.alert('Profile Photo', undefined, [
       {
         text: 'Camera', onPress: async () => {
@@ -100,6 +102,8 @@ export default function SettingsScreen({ navigation }) {
   };
 
   const savePic = async (uri) => {
+    if (uploading) return;
+    setUploading(true);
     let local = uri;
     try {
       const dest = `${FileSystem.documentDirectory}profile.jpg`;
@@ -111,9 +115,11 @@ export default function SettingsScreen({ navigation }) {
     await updateStoredProfile({ profilePicUri: local });
     try {
       await uploadAvatar(local);
-      setAvatarUrl(getAvatarUrl(name)); // refresh with new cache-busting URL
+      setAvatarUrl(getAvatarUrl(name));
     } catch (e) {
       Alert.alert('Upload failed', e.message + '\n\nYour photo is saved locally but won\'t show to others until the server is reachable.');
+    } finally {
+      setUploading(false);
     }
   };
 
@@ -198,11 +204,12 @@ export default function SettingsScreen({ navigation }) {
 
         {/* ── Profile header ── */}
         <View style={[styles.profileSection, { borderBottomColor: colors.border }]}>
-          <TouchableOpacity style={styles.avatarWrap} onPress={handleChangePic} activeOpacity={0.8}>
+          <TouchableOpacity style={styles.avatarWrap} onPress={handleChangePic} activeOpacity={uploading ? 1 : 0.8} disabled={uploading}>
             <Avatar name={name} uri={avatarUrl} size={72} />
-            <View style={[styles.cameraBadge, { backgroundColor: colors.accent }]}>
-              <Feather name="camera" size={12} color={colors.accentText} />
-            </View>
+            {uploading
+              ? <View style={[styles.cameraBadge, { backgroundColor: colors.surface }]}><ActivityIndicator size={10} color={colors.accent} /></View>
+              : <View style={[styles.cameraBadge, { backgroundColor: colors.accent }]}><Feather name="camera" size={12} color={colors.accentText} /></View>
+            }
           </TouchableOpacity>
           <View style={styles.profileText}>
             <Text style={[styles.profileName, { color: colors.text }]}>{name}</Text>
