@@ -359,6 +359,10 @@ function CaptionStep({ assets, editedAssets, filterIdx, trimmedVideo, onBack, on
 
   useEffect(() => { fetchCollections().then(setCollections).catch(() => {}); }, []);
 
+  // All Members is the default destination, so it's not offered as a chip
+  const pickableCollections = collections.filter((c) => !c.isSystem);
+  const selCol = pickableCollections.find((c) => c.id === selectedCollection) || null;
+
   // Optimistic posting: hand the work to the background upload queue and
   // return to the feed immediately — the pending slide there shows progress
   // and surfaces retry/discard if the upload fails.
@@ -418,11 +422,11 @@ function CaptionStep({ assets, editedAssets, filterIdx, trimmedVideo, onBack, on
         />
       </View>
 
-      {collections.length > 0 && (
+      {pickableCollections.length > 0 && (
         <>
-          <Text style={[s.sectionLabel, { color: colors.textSub }]}>Add to collection</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }}>
-            {collections.map((c) => (
+          <Text style={[s.sectionLabel, { color: colors.textSub }]}>Add to collection (optional)</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 4 }}>
+            {pickableCollections.map((c) => (
               <TouchableOpacity
                 key={c.id}
                 style={[s.colChip, { borderColor: colors.border }, selectedCollection === c.id && { backgroundColor: colors.accent, borderColor: colors.accent }]}
@@ -436,6 +440,16 @@ function CaptionStep({ assets, editedAssets, filterIdx, trimmedVideo, onBack, on
           </ScrollView>
         </>
       )}
+
+      {/* Who will see this post — updates with the collection choice */}
+      <View style={[s.shareHint, { backgroundColor: colors.card, borderColor: colors.border }]}>
+        <Feather name={selCol ? 'lock' : 'users'} size={14} color={colors.textSub} />
+        <Text style={[s.shareHintText, { color: colors.textSub }]}>
+          {selCol
+            ? `Only the ${selCol.memberCount || ''} member${selCol.memberCount === 1 ? '' : 's'} of "${selCol.name}" will see this post.`
+            : 'Everyone in the family will see this post. It also lands in the All Members collection.'}
+        </Text>
+      </View>
 
       <View style={[s.captionFooter, { paddingBottom: insets.bottom + 8 }]}>
         <TouchableOpacity onPress={onBack} style={s.backBtn}>
@@ -612,6 +626,11 @@ const s = StyleSheet.create({
   adjustThumb: { width: '100%', height: '100%' },
   adjustThumbLabel: { position: 'absolute', bottom: 3, right: 3, backgroundColor: 'rgba(0,0,0,0.55)', borderRadius: 4, padding: 3 },
   sectionLabel: { fontSize: 11, textTransform: 'uppercase', letterSpacing: 1 },
+  shareHint: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    borderWidth: 1, borderRadius: 8, padding: 10, marginBottom: 12,
+  },
+  shareHintText: { fontSize: 12, lineHeight: 17, flex: 1 },
   colChip: { borderWidth: 1, borderRadius: 20, paddingVertical: 7, paddingHorizontal: 14, marginRight: 8 },
   colChipText: { fontSize: 13 },
   captionFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 8 },

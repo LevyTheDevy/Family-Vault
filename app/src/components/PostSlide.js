@@ -510,6 +510,9 @@ function PostSlide({
         <View style={styles.menuBackdrop}>
           <View style={[styles.collectionSheet, { backgroundColor: colors.card }]}>
             <Text style={[styles.collectionTitle, { color: colors.text, borderBottomColor: colors.border }]}>Add to Collection</Text>
+            <Text style={[styles.collectionHint, { color: colors.textSub, borderBottomColor: colors.border }]}>
+              A post in a collection is only visible to that collection's members. "All Members" means the whole family.
+            </Text>
             {collections.length === 0
               ? <Text style={[styles.collectionEmpty, { color: colors.textSub }]}>No collections yet.{'\n'}Create one in the Collections tab.</Text>
               : (
@@ -575,6 +578,7 @@ const styles = StyleSheet.create({
   muteBtn: { position: 'absolute', bottom: 160, left: 14, backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 16, padding: 7 },
   collectionSheet: { borderTopLeftRadius: 18, borderTopRightRadius: 18, paddingBottom: 36, maxHeight: '60%' },
   collectionTitle: { fontSize: 15, fontWeight: '600', textAlign: 'center', paddingVertical: 16, borderBottomWidth: 1 },
+  collectionHint: { fontSize: 12, lineHeight: 17, textAlign: 'center', paddingHorizontal: 20, paddingVertical: 10, borderBottomWidth: 1 },
   collectionEmpty: { fontSize: 13, textAlign: 'center', padding: 28, lineHeight: 20 },
   collectionRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 15, paddingHorizontal: 24, borderBottomWidth: 1 },
   collectionName: { fontSize: 15 },
