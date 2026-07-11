@@ -274,6 +274,9 @@ export const deletePost = (id) =>
 export const likePost = (id) =>
   req(`${_url}/posts/${id}/like`, { method: 'POST', headers: h() });
 
+export const recordPostView = (id) =>
+  req(`${_url}/posts/${id}/view`, { method: 'POST', headers: h() });
+
 export const savePost = (id) =>
   req(`${_url}/posts/${id}/save`, { method: 'POST', headers: h() });
 

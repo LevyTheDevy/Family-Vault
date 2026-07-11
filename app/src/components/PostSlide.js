@@ -12,7 +12,7 @@ import { Feather, Ionicons } from '@expo/vector-icons';
 import {
   getMemberName, likePost, savePost, deletePost,
   removeFromCollection, fetchCollections, addToCollection, addComment, getAvatarUrl,
-  fetchConversations, startDM, sendMessage,
+  fetchConversations, startDM, sendMessage, recordPostView,
 } from '../utils/api';
 import Avatar from './Avatar';
 import { useTheme } from '../context/ThemeContext';
@@ -20,6 +20,10 @@ import { useToast } from '../context/ToastContext';
 import ZoomableImageViewer from './ZoomableImageViewer';
 
 const OFFLINE_KEY = 'fv_offline_posts';
+
+// Posts whose view was already reported this session — module-level so
+// FlatList remounts don't re-fire the request
+const _viewedPosts = new Set();
 
 function timeAgo(iso) {
   const s = (Date.now() - new Date(iso)) / 1000;
@@ -37,6 +41,7 @@ function PostSlide({
   const toast = useToast();
   const [post, setPost] = useState(initialPost);
   const [showMenu, setShowMenu] = useState(false);
+  const [showInsights, setShowInsights] = useState(false);
   const [showCollections, setShowCollections] = useState(false);
   const [collections, setCollections] = useState([]);
   const [imageIndex, setImageIndex] = useState(0);
@@ -109,6 +114,14 @@ function PostSlide({
   const isLiked = post.likes?.includes(me);
   const isSaved = post.savedBy?.includes(me);
   const isOwn = post.author === me;
+
+  // Report a view once the post is actually on screen (80% visible per the
+  // feed's viewability config). Author's own scrolling is ignored server-side.
+  useEffect(() => {
+    if (!isActive || isOwn || _viewedPosts.has(post.id)) return;
+    _viewedPosts.add(post.id);
+    recordPostView(post.id).catch(() => _viewedPosts.delete(post.id));
+  }, [isActive, post.id]);
 
   const handleLike = async () => {
     const nowLiked = !isLiked;
@@ -363,6 +376,9 @@ function PostSlide({
                 <Text style={[styles.menuItemText, { color: colors.text }]}>View Full Screen</Text>
               </TouchableOpacity>
             )}
+            <TouchableOpacity style={[styles.menuItem, { borderBottomColor: colors.border }]} onPress={() => { setShowMenu(false); setShowInsights(true); }}>
+              <Text style={[styles.menuItemText, { color: colors.text }]}>{isOwn ? 'Likes & Views' : 'View Likes'}</Text>
+            </TouchableOpacity>
             <TouchableOpacity style={[styles.menuItem, { borderBottomColor: colors.border }]} onPress={openCollectionPicker}>
               <Text style={[styles.menuItemText, { color: colors.text }]}>Add to Collection</Text>
             </TouchableOpacity>
@@ -433,6 +449,55 @@ function PostSlide({
             )}
             <TouchableOpacity style={styles.menuItem} onPress={() => setShowSend(false)}>
               <Text style={[styles.menuItemCancel, { color: colors.textSub }]}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Likes & views sheet — likes visible to all, viewer list owner-only */}
+      <Modal visible={showInsights} transparent animationType="slide" onRequestClose={() => setShowInsights(false)} statusBarTranslucent>
+        <View style={styles.menuBackdrop}>
+          <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={() => setShowInsights(false)} />
+          <View style={[styles.collectionSheet, { backgroundColor: colors.card }]}>
+            <Text style={[styles.collectionTitle, { color: colors.text, borderBottomColor: colors.border }]}>
+              {isOwn ? 'Likes & Views' : 'Likes'}
+            </Text>
+            <ScrollView style={styles.insightScroll}>
+              <Text style={[styles.insightSection, { color: colors.textSub }]}>
+                ❤️  Liked by ({post.likes?.length || 0})
+              </Text>
+              {(post.likes?.length || 0) === 0 ? (
+                <Text style={[styles.insightEmpty, { color: colors.textSub }]}>No likes yet.</Text>
+              ) : (
+                post.likes.map((name) => (
+                  <View key={name} style={[styles.insightRow, { borderBottomColor: colors.border }]}>
+                    <Avatar name={name} uri={getAvatarUrl(name)} size={34} />
+                    <Text style={[styles.insightName, { color: colors.text }]}>{name}</Text>
+                  </View>
+                ))
+              )}
+
+              {isOwn && (
+                <>
+                  <Text style={[styles.insightSection, { color: colors.textSub, marginTop: 18 }]}>
+                    👁  Seen by ({post.viewCount ?? post.views?.length ?? 0})
+                  </Text>
+                  {(post.views?.length || 0) === 0 ? (
+                    <Text style={[styles.insightEmpty, { color: colors.textSub }]}>No views yet.</Text>
+                  ) : (
+                    post.views.map((v) => (
+                      <View key={v.viewer} style={[styles.insightRow, { borderBottomColor: colors.border }]}>
+                        <Avatar name={v.viewer} uri={getAvatarUrl(v.viewer)} size={34} />
+                        <Text style={[styles.insightName, { color: colors.text }]}>{v.viewer}</Text>
+                        <Text style={[styles.insightTime, { color: colors.textSub }]}>{timeAgo(v.viewedAt)}</Text>
+                      </View>
+                    ))
+                  )}
+                </>
+              )}
+            </ScrollView>
+            <TouchableOpacity style={[styles.menuItem, styles.menuItemLast]} onPress={() => setShowInsights(false)}>
+              <Text style={[styles.menuItemCancel, { color: colors.textSub }]}>Close</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -514,6 +579,12 @@ const styles = StyleSheet.create({
   collectionRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 15, paddingHorizontal: 24, borderBottomWidth: 1 },
   collectionName: { fontSize: 15 },
   collectionCount: { fontSize: 13 },
+  insightScroll: { paddingHorizontal: 20 },
+  insightSection: { fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 14, marginBottom: 6 },
+  insightEmpty: { fontSize: 13, paddingVertical: 10 },
+  insightRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 9, borderBottomWidth: StyleSheet.hairlineWidth },
+  insightName: { fontSize: 14, flex: 1 },
+  insightTime: { fontSize: 12 },
 });
 
 export default React.memo(PostSlide);

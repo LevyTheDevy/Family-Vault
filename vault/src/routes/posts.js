@@ -189,6 +189,12 @@ router.post('/posts/:id/like', auth, (req, res) => {
   catch (e) { res.status(400).json({ error: e.message }); }
 });
 
+// Record a view — fired by the client when a post is actually on screen
+router.post('/posts/:id/view', auth, (req, res) => {
+  try { db.recordPostView(Number(req.params.id), req.member.name); res.json({ ok: true }); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+
 router.post('/posts/:id/save', auth, (req, res) => {
   try { res.json({ savedBy: db.toggleSave(Number(req.params.id), req.member.name) }); }
   catch (e) { res.status(400).json({ error: e.message }); }

@@ -99,6 +99,12 @@ sql.exec(`
     member_name TEXT NOT NULL COLLATE NOCASE,
     PRIMARY KEY (post_id, member_name)
   );
+  CREATE TABLE IF NOT EXISTS post_views (
+    post_id     INTEGER NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+    member_name TEXT NOT NULL COLLATE NOCASE,
+    viewed_at   TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (post_id, member_name)
+  );
   CREATE TABLE IF NOT EXISTS comments (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     post_id     INTEGER NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
@@ -375,7 +381,7 @@ function ensureAllMembersCollection() {
 const ALL_MEMBERS_ID = ensureAllMembersCollection();
 
 // ─── Row normalizers ─────────────────────────────────────────────────────────
-function postExtras(postId) {
+function postExtras(postId, includeViewers = false) {
   const imageRows = sql.prepare('SELECT filename, feed_filename, thumb_filename FROM post_images WHERE post_id = ? ORDER BY position').all(postId);
   const videoClipRows = sql.prepare('SELECT filename, thumb_filename, duration_secs FROM post_videos WHERE post_id = ? ORDER BY position').all(postId);
   return {
@@ -386,16 +392,23 @@ function postExtras(postId) {
     likes:     sql.prepare('SELECT member_name FROM post_likes WHERE post_id = ?').all(postId).map(r => r.member_name),
     savedBy:   sql.prepare('SELECT member_name FROM post_saves WHERE post_id = ?').all(postId).map(r => r.member_name),
     comments:  sql.prepare('SELECT * FROM comments WHERE post_id = ? ORDER BY id').all(postId).map(normalizeComment),
+    viewCount: sql.prepare('SELECT COUNT(*) AS n FROM post_views WHERE post_id = ?').get(postId).n,
+    // Viewer identities are author-only, same rule as story viewers
+    ...(includeViewers ? {
+      views: sql.prepare('SELECT member_name, viewed_at FROM post_views WHERE post_id = ? ORDER BY viewed_at').all(postId)
+        .map(r => ({ viewer: r.member_name, viewedAt: r.viewed_at })),
+    } : {}),
   };
 }
 
-function normalizePost(row) {
+function normalizePost(row, requestingMember = null) {
   if (!row) return null;
+  const isOwner = requestingMember != null && row.author.toLowerCase() === requestingMember.toLowerCase();
   return {
     id: row.id, author: row.author, caption: row.caption,
     mediaType: row.media_type, videoFilename: row.video_filename,
     thumbnailFilename: row.thumbnail_filename, durationSecs: row.duration_secs,
-    createdAt: row.created_at, ...postExtras(row.id),
+    createdAt: row.created_at, ...postExtras(row.id, isOwner),
   };
 }
 
@@ -456,7 +469,7 @@ function canAccessPost(memberName, postId) {
 function cascadeRename(oldName, newName) {
   const tables = [
     ['posts', 'author'], ['comments', 'author'],
-    ['post_likes', 'member_name'], ['post_saves', 'member_name'],
+    ['post_likes', 'member_name'], ['post_saves', 'member_name'], ['post_views', 'member_name'],
     ['stories', 'author'], ['story_views', 'viewer'],
     ['story_reactions', 'author'], ['story_likes', 'member_name'],
     ['collections', 'author'], ['collection_members', 'member_name'],
@@ -633,6 +646,7 @@ const db = {
       // Remove cross-content references
       sql.prepare('DELETE FROM post_likes WHERE member_name = ? COLLATE NOCASE').run(memberName);
       sql.prepare('DELETE FROM post_saves WHERE member_name = ? COLLATE NOCASE').run(memberName);
+      sql.prepare('DELETE FROM post_views WHERE member_name = ? COLLATE NOCASE').run(memberName);
       sql.prepare('DELETE FROM comments WHERE author = ? COLLATE NOCASE').run(memberName);
       sql.prepare('DELETE FROM collection_members WHERE member_name = ? COLLATE NOCASE').run(memberName);
       sql.prepare('DELETE FROM notifications WHERE recipient = ? COLLATE NOCASE OR actor = ? COLLATE NOCASE').run(memberName, memberName);
@@ -736,7 +750,7 @@ const db = {
     const limitParams = limit != null ? [...params, limit, offset] : params;
     const rows   = sql.prepare(rowsSql).all(...limitParams);
 
-    return { posts: rows.map(normalizePost), total };
+    return { posts: rows.map(r => normalizePost(r, memberName)), total };
   },
 
   getPostById(id) {
@@ -752,7 +766,7 @@ const db = {
       postId, f, i, feedFilenames[i] || null, thumbFilenames[i] || null));
     videoClips.forEach((c, i) => sql.prepare('INSERT INTO post_videos (post_id, filename, thumb_filename, position, duration_secs) VALUES (?,?,?,?,?)').run(
       postId, c.filename, c.thumbFilename || null, i, c.durationSecs ?? null));
-    return normalizePost(sql.prepare('SELECT * FROM posts WHERE id = ?').get(postId));
+    return normalizePost(sql.prepare('SELECT * FROM posts WHERE id = ?').get(postId), author);
   },
 
   deletePost(id, requestingMember) {
@@ -784,6 +798,15 @@ const db = {
 
   getPostAuthor(id) {
     return sql.prepare('SELECT author FROM posts WHERE id = ?').get(id)?.author || null;
+  },
+
+  // Record that a member saw a post. Self-views are skipped so the author's
+  // own scrolling doesn't inflate the count.
+  recordPostView(postId, memberName) {
+    const post = sql.prepare('SELECT author FROM posts WHERE id = ?').get(postId);
+    if (!post) throw new Error('Post not found');
+    if (post.author.toLowerCase() === memberName.toLowerCase()) return;
+    sql.prepare('INSERT OR IGNORE INTO post_views (post_id, member_name) VALUES (?,?)').run(postId, memberName);
   },
 
   addComment(postId, author, text, gifUrl = null, imageX = null, imageY = null, imageIndex = 0) {
@@ -986,7 +1009,7 @@ const db = {
     if (memberName && col.author !== memberName && !members.some(n => n.toLowerCase() === memberName.toLowerCase()))
       throw new Error('You do not have access to this collection');
     const rows = sql.prepare(`SELECT p.* FROM posts p JOIN collection_posts cp ON p.id = cp.post_id WHERE cp.collection_id = ? ORDER BY cp.added_at`).all(colId);
-    return rows.map(normalizePost);
+    return rows.map(r => normalizePost(r, memberName));
   },
 
   // ── Conversations ──────────────────────────────────────────────────────────
