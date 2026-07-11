@@ -252,14 +252,21 @@ export default function StoryViewScreen({ route, navigation }) {
                 <Text style={styles.panelSection}>
                   👁  Seen by {viewerInfo.views.length === 0 ? 'no one yet' : ''}
                 </Text>
-                {viewerInfo.views.map((name) => (
-                  <View key={name} style={styles.panelRow}>
-                    <View style={styles.panelAvatar}>
-                      <Text style={styles.panelAvatarText}>{name[0].toUpperCase()}</Text>
+                {viewerInfo.views.map((v) => {
+                  // Server sends { viewer, viewedAt } objects; tolerate plain
+                  // strings too (older server) — rendering an object here was
+                  // the crash when an author opened their view list
+                  const name = typeof v === 'string' ? v : v?.viewer;
+                  if (!name) return null;
+                  return (
+                    <View key={name} style={styles.panelRow}>
+                      <View style={styles.panelAvatar}>
+                        <Text style={styles.panelAvatarText}>{name[0].toUpperCase()}</Text>
+                      </View>
+                      <Text style={styles.panelName}>{name}</Text>
                     </View>
-                    <Text style={styles.panelName}>{name}</Text>
-                  </View>
-                ))}
+                  );
+                })}
 
                 {/* Reactions grouped by emoji */}
                 {Object.keys(reactionGroups).length > 0 && (
