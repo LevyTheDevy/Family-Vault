@@ -6,6 +6,7 @@ services:
       - "3001:3001"
     environment:
       - PUBLIC_URL=${PUBLIC_URL:-}
+      - KLIPY_KEY=${KLIPY_KEY:-}
       - TENOR_KEY=${TENOR_KEY:-}
     volumes:
       - vault-data:/data

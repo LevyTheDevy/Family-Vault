@@ -59,8 +59,8 @@ app.use(notificationsRoutes);
 app.get('/health', (req, res) => res.json({
   status: 'ok',
   vaultName: getVaultName(),
-  // Lets clients hide GIF buttons when no Tenor key is configured
-  gifEnabled: !!process.env.TENOR_KEY,
+  // Lets clients hide GIF buttons when no GIF provider key is configured
+  gifEnabled: !!(process.env.KLIPY_KEY || process.env.TENOR_KEY),
 }));
 
 // ─── Admin panel (port 3001, localhost only — never reachable via tunnel) ────

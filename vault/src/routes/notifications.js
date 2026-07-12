@@ -32,7 +32,7 @@ router.get('/notifications/summary', auth, (req, res) => {
   res.json({
     unseenNotifications: db.getUnseenNotificationCount(req.member.name),
     unreadMessages: db.getTotalUnread(req.member.name),
-    gifEnabled: !!process.env.TENOR_KEY,
+    gifEnabled: !!(process.env.KLIPY_KEY || process.env.TENOR_KEY),
   });
 });
 
