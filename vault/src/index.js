@@ -56,7 +56,12 @@ app.use(gifRoutes);
 app.use(uploadsRoutes);
 app.use(notificationsRoutes);
 
-app.get('/health', (req, res) => res.json({ status: 'ok', vaultName: getVaultName() }));
+app.get('/health', (req, res) => res.json({
+  status: 'ok',
+  vaultName: getVaultName(),
+  // Lets clients hide GIF buttons when no Tenor key is configured
+  gifEnabled: !!process.env.TENOR_KEY,
+}));
 
 // ─── Admin panel (port 3001, localhost only — never reachable via tunnel) ────
 const adminApp = express();

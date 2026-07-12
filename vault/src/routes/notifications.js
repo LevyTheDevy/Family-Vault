@@ -26,11 +26,13 @@ router.post('/notifications/seen', auth, (req, res) => {
   res.json({ ok: true });
 });
 
-// Lightweight badge poll: unseen notifications + total unread messages
+// Lightweight badge poll: unseen notifications + total unread messages.
+// gifEnabled rides along so clients can hide GIF buttons on vaults with no key.
 router.get('/notifications/summary', auth, (req, res) => {
   res.json({
     unseenNotifications: db.getUnseenNotificationCount(req.member.name),
     unreadMessages: db.getTotalUnread(req.member.name),
+    gifEnabled: !!process.env.TENOR_KEY,
   });
 });
 

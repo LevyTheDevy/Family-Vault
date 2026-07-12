@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { AppState } from 'react-native';
-import { fetchNotifSummary } from '../utils/api';
+import { fetchNotifSummary, setGifEnabled } from '../utils/api';
 import { useVault } from './VaultContext';
 
 const POLL_MS = 20_000;
@@ -24,6 +24,7 @@ export function UnreadProvider({ children }) {
       const s = await fetchNotifSummary();
       setTotalUnread(s.unreadMessages || 0);
       setUnseenNotifs(s.unseenNotifications || 0);
+      setGifEnabled(s.gifEnabled);
     } catch {} // old server / offline — keep last known counts
     finally { inflightRef.current = false; }
   }, []);

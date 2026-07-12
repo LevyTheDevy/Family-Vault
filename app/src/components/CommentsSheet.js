@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { Image as ExpoImage } from 'expo-image';
-import { addComment, deleteComment, getMemberName, getAvatarUrl } from '../utils/api';
+import { addComment, deleteComment, getMemberName, getAvatarUrl, isGifEnabled } from '../utils/api';
 import Avatar from './Avatar';
 import GifPickerModal from './GifPickerModal';
 import { useTheme } from '../context/ThemeContext';
@@ -154,13 +154,15 @@ export default function CommentsSheet({ post, onClose, onUpdated }) {
             />
 
             <View style={[styles.inputRow, { borderTopColor: colors.border }]}>
-              <TouchableOpacity
-                style={[styles.gifBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
-                onPress={() => setShowGifPicker(true)}
-                hitSlop={{ top: 8, right: 4, bottom: 8, left: 4 }}
-              >
-                <Text style={[styles.gifBtnText, { color: colors.textSub }]}>GIF</Text>
-              </TouchableOpacity>
+              {isGifEnabled() && (
+                <TouchableOpacity
+                  style={[styles.gifBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
+                  onPress={() => setShowGifPicker(true)}
+                  hitSlop={{ top: 8, right: 4, bottom: 8, left: 4 }}
+                >
+                  <Text style={[styles.gifBtnText, { color: colors.textSub }]}>GIF</Text>
+                </TouchableOpacity>
+              )}
               <TextInput
                 ref={inputRef}
                 style={[styles.input, { backgroundColor: colors.inputBg, color: colors.text, borderColor: colors.border }]}

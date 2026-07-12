@@ -14,7 +14,7 @@ import {
   fetchMessages, sendMessage, getMemberName, deleteConversation,
   addConversationMember, removeConversationMember, fetchFamilyMembers,
   sendChatMedia, markConversationRead, deleteChatMessage, getAvatarUrl,
-  reactToMessage,
+  reactToMessage, isGifEnabled,
 } from '../utils/api';
 import GifPickerModal from '../components/GifPickerModal';
 import Avatar from '../components/Avatar';
@@ -632,10 +632,12 @@ export default function ChatScreen({ route, navigation }) {
               <View style={[styles.attachIcon, { backgroundColor: colors.card }]}><Feather name="image" size={20} color={colors.text} /></View>
               <Text style={[styles.attachLabel, { color: colors.text }]}>Photo & Video</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.attachRow} onPress={() => { setShowAttachMenu(false); setShowGifPicker(true); }}>
-              <View style={[styles.attachIcon, { backgroundColor: colors.card }]}><Text style={[styles.attachGifLabel, { color: colors.text }]}>GIF</Text></View>
-              <Text style={[styles.attachLabel, { color: colors.text }]}>GIF</Text>
-            </TouchableOpacity>
+            {isGifEnabled() && (
+              <TouchableOpacity style={styles.attachRow} onPress={() => { setShowAttachMenu(false); setShowGifPicker(true); }}>
+                <View style={[styles.attachIcon, { backgroundColor: colors.card }]}><Text style={[styles.attachGifLabel, { color: colors.text }]}>GIF</Text></View>
+                <Text style={[styles.attachLabel, { color: colors.text }]}>GIF</Text>
+              </TouchableOpacity>
+            )}
           </View>
         </View>
       </Modal>

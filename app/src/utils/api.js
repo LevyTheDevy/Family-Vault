@@ -29,6 +29,12 @@ let _feedDirty = false;
 export const markFeedDirty = () => { _feedDirty = true; };
 export const consumeFeedDirty = () => { const d = _feedDirty; _feedDirty = false; return d; };
 
+// GIF search availability, reported by the server (needs a TENOR_KEY there).
+// Defaults to enabled so old servers without the flag keep their buttons.
+let _gifEnabled = true;
+export const setGifEnabled = (v) => { _gifEnabled = v !== false; };
+export const isGifEnabled = () => _gifEnabled;
+
 async function encryptBytes(jpegBytes) {
   const LegacyFS = require('expo-file-system/legacy');
   const { File } = require('expo-file-system');
