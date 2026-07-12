@@ -455,6 +455,19 @@ function normalizeMessage(row, requestingMember = null) {
   };
 }
 
+// Single conversations (create/DM/member add/remove) must return the same
+// shape as getConversations — raw rows (is_dm, created_by, no memberNames)
+// broke the client's group-info member list.
+function normalizeConversation(row) {
+  if (!row) return null;
+  return {
+    id: row.id, name: row.name, isDM: !!row.is_dm, createdBy: row.created_by,
+    createdAt: iso(row.created_at),
+    memberNames: sql.prepare('SELECT member_name FROM conversation_members WHERE conversation_id = ?')
+      .all(row.id).map(r => r.member_name),
+  };
+}
+
 function normalizeCollection(row) {
   if (!row) return null;
   return {
@@ -1033,12 +1046,12 @@ const db = {
       JOIN conversation_members a ON c.id = a.conversation_id AND a.member_name = ? COLLATE NOCASE
       JOIN conversation_members b ON c.id = b.conversation_id AND b.member_name = ? COLLATE NOCASE
       WHERE c.is_dm = 1`).get(memberA, memberB);
-    if (existing) return sql.prepare('SELECT * FROM conversations WHERE id = ?').get(existing.id);
+    if (existing) return normalizeConversation(sql.prepare('SELECT * FROM conversations WHERE id = ?').get(existing.id));
     const res = sql.prepare('INSERT INTO conversations (name, is_dm, created_by) VALUES (NULL, 1, ?)').run(memberA);
     const id = res.lastInsertRowid;
     sql.prepare('INSERT INTO conversation_members VALUES (?,?)').run(id, memberA);
     sql.prepare('INSERT INTO conversation_members VALUES (?,?)').run(id, memberB);
-    return sql.prepare('SELECT * FROM conversations WHERE id = ?').get(id);
+    return normalizeConversation(sql.prepare('SELECT * FROM conversations WHERE id = ?').get(id));
   },
 
   getConversations(memberName = null) {
@@ -1068,7 +1081,7 @@ const db = {
     const res = sql.prepare('INSERT INTO conversations (name, is_dm, created_by) VALUES (?,0,?)').run(name, createdBy);
     const id = res.lastInsertRowid;
     for (const n of memberNames) sql.prepare('INSERT OR IGNORE INTO conversation_members VALUES (?,?)').run(id, n);
-    return sql.prepare('SELECT * FROM conversations WHERE id = ?').get(id);
+    return normalizeConversation(sql.prepare('SELECT * FROM conversations WHERE id = ?').get(id));
   },
 
   addConversationMember(conversationId, memberName, requestingMember) {
@@ -1076,8 +1089,10 @@ const db = {
     if (!c) throw new Error('Conversation not found');
     if (c.is_dm) throw new Error('Cannot add members to a DM');
     if (c.created_by !== requestingMember) throw new Error('Only the creator can add members');
+    if (!sql.prepare('SELECT id FROM members WHERE name = ? COLLATE NOCASE').get(memberName))
+      throw new Error('No such member');
     sql.prepare('INSERT OR IGNORE INTO conversation_members VALUES (?,?)').run(conversationId, memberName);
-    return c;
+    return normalizeConversation(c);
   },
 
   removeConversationMember(conversationId, memberName, requestingMember) {
@@ -1086,7 +1101,7 @@ const db = {
     if (c.is_dm) throw new Error('Cannot remove members from a DM');
     if (c.created_by !== requestingMember && requestingMember !== memberName) throw new Error('Only the creator can remove others');
     sql.prepare('DELETE FROM conversation_members WHERE conversation_id = ? AND member_name = ? COLLATE NOCASE').run(conversationId, memberName);
-    return c;
+    return normalizeConversation(c);
   },
 
   deleteConversation(id, requestingMember) {

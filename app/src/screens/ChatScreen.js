@@ -313,7 +313,8 @@ export default function ChatScreen({ route, navigation }) {
   };
 
   const items = insertDateSeparators(messages);
-  const totalMembers = conversation.memberNames?.length || 2;
+  // groupMembers tracks live add/remove; the route param is a snapshot
+  const totalMembers = groupMembers.length || conversation.memberNames?.length || 2;
 
   if (loading) {
     return <View style={[styles.center, { backgroundColor: colors.screenBg }]}><ActivityIndicator color={colors.text} /></View>;
@@ -582,7 +583,9 @@ export default function ChatScreen({ route, navigation }) {
                     <Text style={[styles.infoMemberName, { color: colors.text }]}>{item}{item === conversation.createdBy ? ' ·  creator' : ''}</Text>
                     {isCreator && item !== me && (
                       <TouchableOpacity onPress={async () => {
-                        try { const u = await removeConversationMember(conversation.id, item); setGroupMembers(u.memberNames || []); }
+                        // Only trust the response if it carries the member list —
+                        // never blank the sheet on an old-server response
+                        try { const u = await removeConversationMember(conversation.id, item); if (u.memberNames) setGroupMembers(u.memberNames); }
                         catch (e) { Alert.alert('Error', e.message); }
                       }}>
                         <Feather name="user-minus" size={16} color="#ff4444" />
@@ -601,7 +604,7 @@ export default function ChatScreen({ route, navigation }) {
                         </Text>
                       ) : addable.map((m) => (
                         <TouchableOpacity key={m.id} style={[styles.infoMemberRow, { borderBottomColor: colors.border }]} onPress={async () => {
-                          try { const u = await addConversationMember(conversation.id, m.name); setGroupMembers(u.memberNames || []); }
+                          try { const u = await addConversationMember(conversation.id, m.name); if (u.memberNames) setGroupMembers(u.memberNames); }
                           catch (e) { Alert.alert('Error', e.message); }
                         }}>
                           <Avatar name={m.name} uri={getAvatarUrl(m.name)} size={34} />
