@@ -31,11 +31,12 @@ function getJson(url) {
   });
 }
 
-// KLIPY media object: files[size][format].url — pick the first available
-function pickKlipyUrl(files, sizes, formats) {
+// KLIPY media object (verified against the live API): result.file[size][format].url
+// with sizes hd/md/sm/xs and formats gif/webp/jpg/mp4/webm.
+function pickKlipyUrl(file, sizes, formats) {
   for (const s of sizes) {
     for (const f of formats) {
-      const url = files?.[s]?.[f]?.url;
+      const url = file?.[s]?.[f]?.url;
       if (url) return url;
     }
   }
@@ -46,11 +47,16 @@ async function searchKlipy(q) {
   const url = `https://api.klipy.com/api/v1/${KLIPY_KEY}/gifs/search?q=${encodeURIComponent(q)}&per_page=24&page=1&rating=pg`;
   const json = await getJson(url);
   const rows = json?.data?.data || [];
-  return rows.map((r) => ({
-    id: String(r.id ?? r.slug ?? Math.random()),
-    gifUrl: pickKlipyUrl(r.files, ['md', 'hd', 'sm', 'xs'], ['gif']),
-    previewUrl: pickKlipyUrl(r.files, ['xs', 'sm', 'md', 'hd'], ['gif', 'webp']),
-  })).filter((r) => r.gifUrl);
+  return rows.map((r) => {
+    const file = r.file || r.files || {};
+    return {
+      id: String(r.id ?? r.slug ?? Math.random()),
+      // md (640px) balances quality vs. size for sending; hd gifs run multiple MB
+      gifUrl: pickKlipyUrl(file, ['md', 'hd', 'sm', 'xs'], ['gif']),
+      // sm (220px) matches the picker's half-width grid cells
+      previewUrl: pickKlipyUrl(file, ['sm', 'xs', 'md', 'hd'], ['gif', 'webp']),
+    };
+  }).filter((r) => r.gifUrl);
 }
 
 async function searchTenor(q) {
