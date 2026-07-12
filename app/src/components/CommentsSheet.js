@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import {
   View, Text, FlatList, TextInput, TouchableOpacity,
   StyleSheet, Alert, ActivityIndicator, Keyboard, Modal, Dimensions, Image,
+  useWindowDimensions,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { Image as ExpoImage } from 'expo-image';
@@ -29,6 +30,13 @@ export default function CommentsSheet({ post, onClose, onUpdated }) {
   const inputRef = useRef();
   const listRef = useRef();
   const me = getMemberName();
+  const { height: windowH } = useWindowDimensions();
+
+  // The sheet needs a real height: with only maxHeight, the flex:1 list inside
+  // collapsed to its 240px minHeight and comments showed through a ~120px
+  // letterbox. 65% of the window normally; when the keyboard is up, shrink
+  // just enough that the whole sheet stays on screen above it.
+  const sheetHeight = Math.max(280, Math.min(windowH * 0.65, windowH - keyboardHeight - 60));
 
   useEffect(() => { setComments(post?.comments || []); }, [post?.id]);
 
@@ -103,7 +111,7 @@ export default function CommentsSheet({ post, onClose, onUpdated }) {
         <View style={[styles.wrapper, { paddingBottom: keyboardHeight }]}>
           <TouchableOpacity style={styles.dismissArea} activeOpacity={1} onPress={close} />
 
-          <View style={[styles.sheet, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <View style={[styles.sheet, { backgroundColor: colors.surface, borderColor: colors.border, height: sheetHeight }]}>
             <View style={[styles.handle, { backgroundColor: colors.border }]} />
 
             <View style={[styles.header, { borderBottomColor: colors.border }]}>
@@ -216,7 +224,7 @@ export default function CommentsSheet({ post, onClose, onUpdated }) {
 const styles = StyleSheet.create({
   wrapper: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
   dismissArea: { flex: 1 },
-  sheet: { maxHeight: '65%', minHeight: 240, borderTopLeftRadius: 18, borderTopRightRadius: 18, borderTopWidth: 1 },
+  sheet: { borderTopLeftRadius: 18, borderTopRightRadius: 18, borderTopWidth: 1 },
   handle: { width: 38, height: 4, borderRadius: 2, alignSelf: 'center', marginTop: 10, marginBottom: 2 },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 18, paddingVertical: 12, borderBottomWidth: 1 },
   title: { fontSize: 15, fontWeight: '600' },
