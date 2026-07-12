@@ -29,8 +29,11 @@ export default function StoryViewScreen({ route, navigation }) {
   const [showInfoPanel, setShowInfoPanel] = useState(false);
   const [viewerInfo, setViewerInfo] = useState(null);
   const [paused, setPaused] = useState(false);
+  const [videoReady, setVideoReady] = useState(false);
   const progress = useRef(new Animated.Value(0)).current;
   const animRef = useRef(null);
+  // Timer AND video didJustFinish can both call advance — one skip per index
+  const advancedRef = useRef(-1);
   const me = getMemberName();
 
   const story = stories[index];
@@ -42,6 +45,11 @@ export default function StoryViewScreen({ route, navigation }) {
     setIsLiked(story?.likes?.includes(me) ?? false);
     if (story) viewStory(story.id).catch(() => {});
   }, [story?.id]);
+
+  useEffect(() => {
+    setVideoReady(false);
+    advancedRef.current = -1;
+  }, [index]);
 
   const startProgress = () => {
     progress.setValue(0);
@@ -56,12 +64,17 @@ export default function StoryViewScreen({ route, navigation }) {
   const stopProgress = () => animRef.current?.stop();
 
   useEffect(() => {
-    if (!paused) startProgress();
+    // Video stories: hold the countdown until the video has actually loaded —
+    // on slow connections the fixed timer used to skip them before playback
+    const waitingForVideo = isVideoStory && !videoReady;
+    if (!paused && !waitingForVideo) startProgress();
     else stopProgress();
     return () => stopProgress();
-  }, [index, paused]);
+  }, [index, paused, videoReady, isVideoStory]);
 
   const advance = () => {
+    if (advancedRef.current === index) return;
+    advancedRef.current = index;
     if (index < stories.length - 1) setIndex((i) => i + 1);
     else navigation.goBack();
   };
@@ -138,8 +151,9 @@ export default function StoryViewScreen({ route, navigation }) {
           style={styles.image}
           resizeMode={ResizeMode.COVER}
           shouldPlay={!paused && !showInfoPanel}
-          isLooping
+          isLooping={false}
           isMuted={false}
+          onLoad={() => setVideoReady(true)}
           onPlaybackStatusUpdate={(status) => { if (status.didJustFinish) advance(); }}
         />
       ) : (
@@ -180,7 +194,7 @@ export default function StoryViewScreen({ route, navigation }) {
               <Text style={styles.deleteBtnText}>Delete</Text>
             </TouchableOpacity>
           )}
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.closeBtn}>
+          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.closeBtn} accessibilityRole="button" accessibilityLabel="Close">
             <Text style={styles.closeBtnText}>✕</Text>
           </TouchableOpacity>
         </View>
@@ -195,14 +209,14 @@ export default function StoryViewScreen({ route, navigation }) {
 
       {/* Tap zones (left/right to navigate stories) */}
       <View style={styles.tapZones} pointerEvents="box-none">
-        <TouchableOpacity style={styles.tapLeft} onPress={goBack} />
-        <TouchableOpacity style={styles.tapRight} onPress={advance} />
+        <TouchableOpacity style={styles.tapLeft} onPress={goBack} accessibilityRole="button" accessibilityLabel="Previous daily" />
+        <TouchableOpacity style={styles.tapRight} onPress={advance} accessibilityRole="button" accessibilityLabel="Next daily" />
       </View>
 
       {/* Bottom area: like + reactions + owner viewer count */}
       <View style={styles.bottomBar} pointerEvents="box-none">
         {/* Like button */}
-        <TouchableOpacity style={styles.likeBtn} onPress={handleLike} pointerEvents="auto">
+        <TouchableOpacity style={styles.likeBtn} onPress={handleLike} pointerEvents="auto" accessibilityRole="button" accessibilityLabel={isLiked ? 'Unlike daily' : 'Like daily'}>
           <Feather name="heart" size={24} color={isLiked ? '#ff4d6d' : 'rgba(255,255,255,0.85)'} />
         </TouchableOpacity>
 
@@ -221,7 +235,7 @@ export default function StoryViewScreen({ route, navigation }) {
 
         {/* Owner: view count — plain text, no emoji */}
         {isOwner && (
-          <TouchableOpacity style={styles.viewerBadge} onPress={openInfoPanel} pointerEvents="auto">
+          <TouchableOpacity style={styles.viewerBadge} onPress={openInfoPanel} pointerEvents="auto" accessibilityRole="button" accessibilityLabel={`${viewCount} views. Open insights`}>
             <Feather name="eye" size={13} color="#aaa" />
             <Text style={styles.viewerBadgeText}>{viewCount} {viewCount === 1 ? 'view' : 'views'}</Text>
           </TouchableOpacity>
@@ -387,9 +401,9 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1, borderBottomColor: '#1a1a1a',
   },
   panelCenter: { padding: 40, alignItems: 'center' },
-  panelLoadingText: { color: '#444', fontSize: 13 },
+  panelLoadingText: { color: '#8e8e93', fontSize: 13 },
   panelScroll: { paddingHorizontal: 20, paddingTop: 8, marginBottom: 24, flexGrow: 0, flexShrink: 1 },
-  panelSection: { color: '#555', fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 10, marginTop: 4 },
+  panelSection: { color: '#8e8e93', fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 10, marginTop: 4 },
   panelRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#111' },
   panelAvatar: {
     width: 32, height: 32, borderRadius: 16,

@@ -17,16 +17,16 @@ function useTheme() {
     input:            dark ? '#111'     : '#f0f0f0',
     border:           dark ? '#1e1e1e'  : '#e0e0e0',
     text:             dark ? '#fff'     : '#000',
-    textMuted:        dark ? '#555'     : '#888',
+    textMuted:        dark ? '#8e8e93'  : '#636366',
     tabActiveBg:      dark ? '#fff'     : '#000',
     tabActiveText:    dark ? '#000'     : '#fff',
-    tabInactiveText:  dark ? '#555'     : '#999',
+    tabInactiveText:  dark ? '#8e8e93'  : '#75757a',
     btnBg:            dark ? '#fff'     : '#000',
     btnText:          dark ? '#000'     : '#fff',
     iconMuted:        dark ? '#333'     : '#bbb',
     errorText:        '#e53935',
     frameBorder:      dark ? '#fff'     : '#000',
-    hintText:         dark ? '#666'     : '#999',
+    hintText:         dark ? '#9a9a9e'  : '#75757a',
   };
 }
 

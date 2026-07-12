@@ -25,6 +25,8 @@ export function VaultSwitcherButton() {
         onPress={() => setOpen(true)}
         style={[styles.chip, { backgroundColor: colors.card, borderColor: colors.border }]}
         hitSlop={{ top: 10, bottom: 10, left: 16, right: 16 }}
+        accessibilityRole="button"
+        accessibilityLabel={`Current vault: ${label}. Switch vault`}
       >
         <Text style={[styles.chipText, { color: colors.text }]} numberOfLines={1}>
           {label}
@@ -51,7 +53,14 @@ export function VaultSwitcherButton() {
                 style={[styles.vaultRow, { borderBottomColor: colors.border }]}
                 onPress={async () => {
                   setOpen(false);
-                  if (i !== activeIndex) await switchVault(i);
+                  if (i !== activeIndex) {
+                    const r = await switchVault(i);
+                    // Vault has no stored key (or token) — one password prompt
+                    // re-establishes it in place without touching other vaults
+                    if (r?.needsAuth && navigationRef.isReady()) {
+                      navigationRef.navigate('Auth', {});
+                    }
+                  }
                 }}
                 activeOpacity={0.7}
               >
@@ -102,6 +111,8 @@ export function NotificationBell() {
       hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
       onPress={() => navigation.navigate('Notifications')}
       activeOpacity={0.6}
+      accessibilityRole="button"
+      accessibilityLabel={unseenNotifs > 0 ? `Notifications, ${unseenNotifs} unseen` : 'Notifications'}
     >
       <Feather name="bell" size={20} color={colors.text} />
       {unseenNotifs > 0 && (

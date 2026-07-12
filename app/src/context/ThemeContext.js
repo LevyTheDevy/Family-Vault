@@ -7,8 +7,10 @@ const DARK = {
   card: '#111111',
   border: '#1e1e1e',
   text: '#ffffff',
-  textSub: '#555555',
-  textMuted: '#2a2a2a',
+  // Bumped for WCAG-ish contrast: #555 on black was ~2.7:1 — hard to read for
+  // anyone, genuinely inaccessible for older eyes. #8e8e93 ≈ 5.6:1.
+  textSub: '#8e8e93',
+  textMuted: '#6e6e73',
   accent: '#ffffff',
   accentText: '#000000',
   bubble: '#161616',
@@ -26,8 +28,9 @@ const LIGHT = {
   card: '#f9f9f9',
   border: '#e0e0e0',
   text: '#000000',
-  textSub: '#888888',
-  textMuted: '#cccccc',
+  // #888 on #f2f2f7 was ~3.3:1 — #636366 ≈ 5.5:1
+  textSub: '#636366',
+  textMuted: '#8e8e93',
   accent: '#000000',
   accentText: '#ffffff',
   bubble: '#e5e5ea',
@@ -103,12 +106,19 @@ export function ThemeProvider({ children }) {
     colors = LIGHT;
   } else if (mode === 'custom') {
     const base = customBase === 'light' ? LIGHT : DARK;
-    const accentLight = isLightColor(customAccent);
+    // Invisible-accent guard: a black accent on the dark base (or white on
+    // light) hides every accent-colored control — fall back to base accent
+    let accent = customAccent;
+    if ((customBase === 'light' && accent.toLowerCase() === '#ffffff')
+      || (customBase !== 'light' && accent.toLowerCase() === '#000000')) {
+      accent = base.accent;
+    }
+    const accentLight = isLightColor(accent);
     colors = {
       ...base,
-      accent: customAccent,
+      accent,
       accentText: accentLight ? '#000' : '#fff',
-      bubbleMe: customAccent,
+      bubbleMe: accent,
       bubbleMeText: accentLight ? '#000' : '#fff',
     };
   } else {

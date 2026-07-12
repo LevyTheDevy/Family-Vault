@@ -13,6 +13,35 @@ const VIDEO_CACHE_DIR = LegacyFS.cacheDirectory + 'fv-video/';
 const _videoMemCache = new Map(); // filename → local decrypted path
 const _videoInflight = new Map(); // cachePath → Promise
 
+// Wipe all decrypted video — called on vault switch/disconnect so one vault's
+// plaintext never survives into another session (mirrors CachedImage)
+export async function clearVideoCache() {
+  _videoMemCache.clear();
+  await LegacyFS.deleteAsync(VIDEO_CACHE_DIR, { idempotent: true }).catch(() => {});
+}
+
+// Evict oldest decrypted videos until under the cap — videos are 20-60MB each
+// and previously accumulated forever. Runs at app start before playback.
+export async function pruneVideoCache(maxBytes = 700 * 1024 * 1024) {
+  try {
+    const names = await LegacyFS.readDirectoryAsync(VIDEO_CACHE_DIR).catch(() => []);
+    if (!names.length) return;
+    const files = [];
+    for (const n of names) {
+      const info = await LegacyFS.getInfoAsync(VIDEO_CACHE_DIR + n, { size: true }).catch(() => null);
+      if (info?.exists) files.push({ path: VIDEO_CACHE_DIR + n, size: info.size || 0, mtime: info.modificationTime || 0 });
+    }
+    let total = files.reduce((s, f) => s + f.size, 0);
+    if (total <= maxBytes) return;
+    files.sort((a, b) => a.mtime - b.mtime);
+    for (const f of files) {
+      if (total <= maxBytes) break;
+      await LegacyFS.deleteAsync(f.path, { idempotent: true }).catch(() => {});
+      total -= f.size;
+    }
+  } catch {}
+}
+
 function isEncryptedVideo(uri) {
   // Matches /storage/something.enc (with optional query params)
   return !!(uri?.match(/\/storage\/[^?#]+\.enc($|\?)/));
@@ -80,7 +109,11 @@ async function decryptAndCacheVideo(uri) {
   return promise;
 }
 
-export default function CachedVideo({ uri, style, shouldPlay = false, isLooping = false, isMuted = true, resizeMode, onLoad, onPlaybackStatusUpdate, posterUri, ...props }) {
+// active: gate the (expensive) full download + decrypt on actual visibility.
+// The feed keeps ~5 slides mounted; without the gate, scrolling past a run of
+// video posts started that many concurrent full-video downloads + in-memory
+// decrypts — bandwidth burst on cellular, OOM risk on low-RAM phones.
+export default function CachedVideo({ uri, style, shouldPlay = false, isLooping = false, isMuted = true, resizeMode, onLoad, onPlaybackStatusUpdate, posterUri, active = true, ...props }) {
   const { cryptoReady } = useVault();
   const encrypted = isEncryptedVideo(uri);
   const [localUri, setLocalUri] = useState(() => getCachedVideoUri(uri));
@@ -90,6 +123,7 @@ export default function CachedVideo({ uri, style, shouldPlay = false, isLooping 
     if (!encrypted || !uri) return;
     const cached = getCachedVideoUri(uri);
     if (cached) { setLocalUri(cached); setLoading(false); return; }
+    if (!active) return; // poster only until this slide is actually on screen
 
     let cancelled = false;
     setLocalUri(null);
@@ -109,7 +143,7 @@ export default function CachedVideo({ uri, style, shouldPlay = false, isLooping 
       });
 
     return () => { cancelled = true; };
-  }, [uri, encrypted, cryptoReady]);
+  }, [uri, encrypted, cryptoReady, active]);
 
   if (!uri) return <View style={[{ backgroundColor: '#000' }, style]} />;
 

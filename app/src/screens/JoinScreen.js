@@ -17,7 +17,7 @@ function useTheme() {
     input:       dark ? '#111'    : '#f0f0f0',
     border:      dark ? '#1e1e1e' : '#e0e0e0',
     text:        dark ? '#fff'    : '#000',
-    textMuted:   dark ? '#555'    : '#888',
+    textMuted:   dark ? '#8e8e93' : '#636366',
     primaryBtn:  dark ? '#fff'    : '#000',
     primaryBtnText: dark ? '#000' : '#fff',
     errorColor:  '#e53935',

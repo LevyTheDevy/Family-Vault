@@ -42,6 +42,17 @@ export async function pruneDecryptedCache(maxBytes = 500 * 1024 * 1024) {
   } catch {}
 }
 
+// Resolve a /storage/ URL to a decrypted local file, decrypting on demand.
+// Used by the offline-save pipeline. Returns null for non-encrypted URLs
+// (caller downloads those directly).
+export async function getDecryptedLocalPath(uri) {
+  if (!uri || !isEncrypted(uri)) return null;
+  try {
+    const p = await decryptAndCache(uri);
+    return p && p !== uri ? p : null;
+  } catch { return null; }
+}
+
 function getCachedUri(uri) {
   if (!uri || !isEncrypted(uri)) return null;
   const filename = uri.match(/\/storage\/([^?#]+)/)?.[1];

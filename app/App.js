@@ -18,6 +18,7 @@ import MessagesScreen from './src/screens/MessagesScreen';
 import ChatScreen from './src/screens/ChatScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
 import NotificationsScreen from './src/screens/NotificationsScreen';
+import PostViewerScreen from './src/screens/PostViewerScreen';
 import ThemeScreen from './src/screens/ThemeScreen';
 import StoryViewScreen from './src/screens/StoryViewScreen';
 import StoryCreateScreen from './src/screens/StoryCreateScreen';
@@ -30,7 +31,9 @@ import { onUploadComplete, onUploadFailed, resumePendingUploads } from './src/ut
 import { VaultProvider, useVault } from './src/context/VaultContext';
 import { VaultSwitcherButton, NotificationBell } from './src/components/VaultSwitcher';
 import { pruneDecryptedCache } from './src/components/CachedImage';
+import { pruneVideoCache } from './src/components/CachedVideo';
 import { registerForPush, listenForPushTaps, autoClearTrayNotifications } from './src/utils/push';
+import { onAuthExpired } from './src/utils/api';
 import ResetPasswordScreen from './src/screens/ResetPasswordScreen';
 import JoinScreen from './src/screens/JoinScreen';
 import { navigationRef } from './src/utils/navigation';
@@ -76,6 +79,7 @@ function FeedStackScreen() {
         />
       <FeedStack.Screen name="Post" component={PostScreen} options={{ title: 'New Post' }} />
       <FeedStack.Screen name="Notifications" component={NotificationsScreen} options={{ title: 'Notifications' }} />
+      <FeedStack.Screen name="PostViewer" component={PostViewerScreen} options={{ title: 'Post' }} />
       <FeedStack.Screen name="StoryCreate" component={StoryCreateScreen} options={{ headerShown: false }} />
     </FeedStack.Navigator>
   );
@@ -160,6 +164,7 @@ function MainTabs() {
         name="NewPost"
         component={NewPostPlaceholder}
         options={{
+          tabBarAccessibilityLabel: 'New post',
           tabBarLabel: () => null,
           tabBarIcon: () => (
             <View style={[styles.plusCircle, { backgroundColor: colors.accent }]}>
@@ -197,7 +202,8 @@ function AppInner() {
   useEffect(() => {
     if (!ready) return;
     FileSystem.deleteAsync(FileSystem.cacheDirectory + 'fv/', { idempotent: true }).catch(() => {});
-    pruneDecryptedCache().catch(() => {}); // cap decrypted-media cache at 500MB
+    pruneDecryptedCache().catch(() => {}); // cap decrypted images at 500MB
+    pruneVideoCache().catch(() => {});     // cap decrypted videos at 700MB
     if (vaults.length === 0) setInitialRoute('Scan');
     else if (cryptoReady) setInitialRoute('Main');
     else setInitialRoute('Auth');
@@ -230,6 +236,16 @@ function AppInner() {
   useEffect(() => {
     if (ready && cryptoReady) resumePendingUploads();
   }, [ready, cryptoReady]);
+
+  // Expired session: route to sign-in (in place — other vaults and the stored
+  // key are preserved) instead of leaving every screen quietly broken
+  useEffect(() => onAuthExpired(() => {
+    if (!navigationRef.isReady()) return;
+    const cur = navigationRef.getCurrentRoute()?.name;
+    if (['Auth', 'Scan', 'Join', 'ResetPassword'].includes(cur)) return;
+    toast?.error('Your session expired — please sign in again.');
+    navigationRef.navigate('Auth', {});
+  }), []);
 
   if (!initialRoute) {
     return (

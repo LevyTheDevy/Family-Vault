@@ -243,9 +243,31 @@ async function req(url, opts = {}) {
   }
   let json = {};
   try { json = await res.json(); } catch { /* non-JSON body */ }
-  if (!res.ok) throw new Error(json.error || `Server error (${res.status})`);
+  if (!res.ok) {
+    // Expired/invalid session — let the app route to re-auth instead of
+    // leaving every screen quietly broken. Login/join endpoints are excluded
+    // (a wrong password 401 is not a session expiry).
+    if (res.status === 401 && !/\/(login|join)$/.test(url.split('?')[0])) emitAuthExpired();
+    throw new Error(json.error || `Server error (${res.status})`);
+  }
   return json;
 }
+
+// ── Session-expiry signal ────────────────────────────────────────────────────
+const _authExpiredSubs = new Set();
+let _lastAuthEmit = 0;
+export const onAuthExpired = (cb) => { _authExpiredSubs.add(cb); return () => _authExpiredSubs.delete(cb); };
+function emitAuthExpired() {
+  const now = Date.now();
+  if (now - _lastAuthEmit < 15_000) return; // polls can 401 in bursts — emit once
+  _lastAuthEmit = now;
+  for (const cb of _authExpiredSubs) { try { cb(); } catch {} }
+}
+
+// Exchange the current token for a fresh full-length one (sliding session).
+// 404 on old servers / offline is fine — the existing token keeps working.
+export const refreshToken = () =>
+  req(`${_url}/refresh`, { method: 'POST', headers: h() });
 
 // Multipart upload with real progress. RN's fetch can't report upload
 // progress, but its XMLHttpRequest can — used whenever a caller wants a
@@ -321,6 +343,12 @@ export const likePost = (id) =>
 
 export const recordPostView = (id) =>
   req(`${_url}/posts/${id}/view`, { method: 'POST', headers: h() });
+
+// Single post (notification taps) — 404 on servers without the route
+export const fetchPost = async (id) => {
+  const p = await req(`${_url}/posts/${id}`, { headers: h() });
+  return decryptPost(addTokenToPost(p));
+};
 
 export const savePost = (id) =>
   req(`${_url}/posts/${id}/save`, { method: 'POST', headers: h() });
@@ -599,11 +627,20 @@ export const fetchStoryViewers = (id) =>
   req(`${_url}/stories/${id}/viewers`, { headers: h() });
 
 // Profile
-export const updateProfile = ({ newName, currentPassword, newPassword }) =>
+// kdfSalt/wrappedVaultKey: the vault key re-wrapped with the NEW password —
+// must accompany every password change or future logins can't unlock E2E data
+export const updateProfile = ({ newName, currentPassword, newPassword, kdfSalt, wrappedVaultKey }) =>
   req(`${_url}/members/me`, {
     method: 'PATCH',
     headers: jh(),
-    body: JSON.stringify({ newName, currentPassword, newPassword }),
+    body: JSON.stringify({ newName, currentPassword, newPassword, kdfSalt, wrappedVaultKey }),
+  });
+
+// Standalone re-wrap endpoint — fallback when the server predates atomic
+// crypto-in-PATCH (response without cryptoUpdated)
+export const updateCrypto = (kdfSalt, wrappedVaultKey) =>
+  req(`${_url}/update-crypto`, {
+    method: 'POST', headers: jh(), body: JSON.stringify({ kdfSalt, wrappedVaultKey }),
   });
 
 export const uploadAvatar = async (uri) => {
@@ -663,6 +700,10 @@ export const addConversationMember = (id, memberName) =>
 
 export const removeConversationMember = (id, memberName) =>
   req(`${_url}/conversations/${id}/members/${encodeURIComponent(memberName)}`, { method: 'DELETE', headers: h() });
+
+// Tiny change-detection payload for the chat poll (404 on old servers)
+export const fetchMessagesDigest = (conversationId) =>
+  req(`${_url}/conversations/${conversationId}/digest`, { headers: h() });
 
 export const fetchMessages = async (conversationId) => {
   const msgs = await req(`${_url}/conversations/${conversationId}/messages`, { headers: h() });

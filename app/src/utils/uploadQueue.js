@@ -51,6 +51,13 @@ function remove(id) {
   emit();
 }
 
+// One upload at a time: parallel jobs just fight over the same home uplink
+// and all finish later. FIFO chain; failures don't break the chain.
+let _chain = Promise.resolve();
+function schedule(id) {
+  _chain = _chain.then(() => process(id)).catch(() => {});
+}
+
 function enqueue(kind, payload) {
   const item = {
     id: 'u' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
@@ -65,7 +72,7 @@ function enqueue(kind, payload) {
   items.unshift(item);
   persist();
   emit();
-  process(item.id);
+  schedule(item.id);
   return item.id;
 }
 
@@ -153,7 +160,7 @@ export function retryUpload(id) {
   // Retry targets the currently connected vault — the user is looking at its feed
   update(id, { status: 'uploading', error: null, progress: 0, stage: 'Preparing', vaultUrl: getVaultUrl() });
   persist();
-  process(id);
+  schedule(id);
 }
 
 export function discardUpload(id) {
@@ -175,6 +182,6 @@ export async function resumePendingUploads() {
       items.push({ ...s, status: 'uploading', stage: 'Preparing', progress: 0, error: null });
     }
     emit();
-    for (const s of fresh) process(s.id);
+    for (const s of fresh) schedule(s.id);
   } catch {}
 }

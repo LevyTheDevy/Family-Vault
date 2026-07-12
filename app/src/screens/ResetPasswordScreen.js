@@ -5,8 +5,11 @@ import {
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { getVaultUrl, getToken, setToken } from '../utils/api';
+import { wrapVaultKey } from '../utils/crypto';
+import { useVault } from '../context/VaultContext';
 
 export default function ResetPasswordScreen({ navigation }) {
+  const { getVaultKey, updateActiveAuth } = useVault();
   const [newPw, setNewPw] = useState('');
   const [confirmPw, setConfirmPw] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -16,15 +19,33 @@ export default function ResetPasswordScreen({ navigation }) {
     if (newPw !== confirmPw) return Alert.alert('No match', "Passwords don't match.");
     setSubmitting(true);
     try {
+      // Re-wrap the vault key with the chosen password. Without this, the key
+      // stays wrapped with the admin's temp password and the next fresh login
+      // can't unlock any E2E content.
+      let crypto = null;
+      const vk = getVaultKey?.();
+      if (vk) crypto = await wrapVaultKey(vk, newPw);
+
       const res = await fetch(`${getVaultUrl()}/change-password`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
-        body: JSON.stringify({ newPassword: newPw }),
+        body: JSON.stringify({ newPassword: newPw, ...(crypto || {}) }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Failed to update password');
       // Update the stored token (server issues a fresh one)
-      if (json.token) setToken(json.token);
+      if (json.token) {
+        setToken(json.token);
+        await updateActiveAuth({ token: json.token });
+      }
+      if (crypto && !json.cryptoUpdated) {
+        // Old server: apply the re-wrap via the standalone endpoint
+        await fetch(`${getVaultUrl()}/update-crypto`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
+          body: JSON.stringify(crypto),
+        }).catch(() => {});
+      }
       navigation.reset({ index: 0, routes: [{ name: 'Main' }] });
     } catch (e) {
       Alert.alert('Error', e.message);
@@ -51,8 +72,8 @@ export default function ResetPasswordScreen({ navigation }) {
           <Text style={styles.label}>New password</Text>
           <TextInput
             style={styles.input}
-            placeholder="At least 4 characters"
-            placeholderTextColor="#333"
+            placeholder="At least 8 characters"
+            placeholderTextColor="#6e6e73"
             secureTextEntry
             value={newPw}
             onChangeText={setNewPw}
@@ -64,7 +85,7 @@ export default function ResetPasswordScreen({ navigation }) {
           <TextInput
             style={styles.input}
             placeholder="Repeat password"
-            placeholderTextColor="#333"
+            placeholderTextColor="#6e6e73"
             secureTextEntry
             value={confirmPw}
             onChangeText={setConfirmPw}
@@ -100,8 +121,8 @@ const styles = StyleSheet.create({
     alignSelf: 'center', marginBottom: 8,
   },
   title: { color: '#fff', fontSize: 24, fontWeight: '700', textAlign: 'center' },
-  sub: { color: '#555', fontSize: 14, textAlign: 'center', lineHeight: 20, marginBottom: 8 },
-  label: { color: '#555', fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, marginBottom: -4 },
+  sub: { color: '#8e8e93', fontSize: 14, textAlign: 'center', lineHeight: 20, marginBottom: 8 },
+  label: { color: '#8e8e93', fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, marginBottom: -4 },
   input: {
     backgroundColor: '#111', color: '#fff',
     borderWidth: 1, borderColor: '#1e1e1e', borderRadius: 8,

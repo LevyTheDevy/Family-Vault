@@ -178,7 +178,7 @@ export default function ZoomableImageViewer({ visible, uri, onClose }) {
         >
           <CachedImage uri={uri} style={styles.image} resizeMode="contain" />
         </Animated.View>
-        <TouchableOpacity style={styles.closeBtn} onPress={onClose} hitSlop={{ top: 12, right: 12, bottom: 12, left: 12 }}>
+        <TouchableOpacity style={styles.closeBtn} onPress={onClose} hitSlop={{ top: 12, right: 12, bottom: 12, left: 12 }} accessibilityRole="button" accessibilityLabel="Close image">
           <Feather name="x" size={22} color="#fff" />
         </TouchableOpacity>
       </View>

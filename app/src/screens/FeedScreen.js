@@ -246,7 +246,7 @@ export default function FeedScreen({ navigation }) {
           initialNumToRender={3}
           maxToRenderPerBatch={3}
           onLayout={onLayout}
-          getItemLayout={getItemLayout}
+          getItemLayout={listHeight > 0 ? getItemLayout : undefined}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.text} />}
           onEndReached={onEndReached}
           onEndReachedThreshold={0.15}

@@ -68,7 +68,7 @@ export default function StoriesStrip({ stories, onAdd, onView, pendingStories = 
         renderItem={({ item }) => {
           if (item.isAdd) {
             return (
-              <TouchableOpacity style={styles.item} onPress={onAdd}>
+              <TouchableOpacity style={styles.item} onPress={onAdd} accessibilityRole="button" accessibilityLabel="Post a new daily">
                 <View style={[styles.addCircle, { backgroundColor: colors.card, borderColor: colors.border }]}>
                   <Text style={[styles.addPlus, { color: colors.text }]}>+</Text>
                 </View>
@@ -79,7 +79,13 @@ export default function StoriesStrip({ stories, onAdd, onView, pendingStories = 
           if (item.isPending) {
             const failed = item.pending.status === 'failed';
             return (
-              <TouchableOpacity style={styles.item} onPress={() => onPendingPress?.(item.pending)} activeOpacity={failed ? 0.7 : 1}>
+              <TouchableOpacity
+                style={styles.item}
+                onPress={() => onPendingPress?.(item.pending)}
+                activeOpacity={failed ? 0.7 : 1}
+                accessibilityRole="button"
+                accessibilityLabel={failed ? 'Daily failed to upload. Tap to retry' : 'Daily uploading'}
+              >
                 <View style={[styles.pendingCircle, { backgroundColor: colors.card, borderColor: failed ? '#e53935' : colors.accent }]}>
                   {item.pending.payload?.previewUri && (
                     <Image source={{ uri: item.pending.payload.previewUri }} style={styles.pendingThumb} />
@@ -97,7 +103,7 @@ export default function StoriesStrip({ stories, onAdd, onView, pendingStories = 
             );
           }
           return (
-            <TouchableOpacity style={styles.item} onPress={() => onView(item.stories)}>
+            <TouchableOpacity style={styles.item} onPress={() => onView(item.stories)} accessibilityRole="button" accessibilityLabel={`${item.isMe ? 'Your' : item.author + "'s"} daily${item.hasUnwatched ? ', unwatched' : ''}`}>
               <GlowRing active={item.hasUnwatched} colors={colors}>
                 <Avatar name={item.author} uri={getAvatarUrl(item.author)} size={52} />
               </GlowRing>

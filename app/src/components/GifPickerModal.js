@@ -71,7 +71,8 @@ export default function GifPickerModal({ visible, onSelect, onClose }) {
               keyExtractor={(g) => g.id}
               numColumns={2}
               contentContainerStyle={styles.grid}
-              keyboardShouldPersistTaps="always"
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
               renderItem={({ item }) => (
                 <TouchableOpacity
                   style={styles.gifCell}
@@ -115,7 +116,7 @@ const styles = StyleSheet.create({
     fontSize: 14, borderWidth: 1, borderColor: '#2a2a2a',
   },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingBottom: 40 },
-  emptyText: { color: '#333', fontSize: 13 },
+  emptyText: { color: '#8e8e93', fontSize: 13, textAlign: 'center', paddingHorizontal: 24 },
   grid: { padding: 6 },
   gifCell: {
     flex: 1, margin: 3, borderRadius: 8, overflow: 'hidden',

@@ -18,6 +18,7 @@ import Avatar from './Avatar';
 import { useTheme } from '../context/ThemeContext';
 import { useToast } from '../context/ToastContext';
 import ZoomableImageViewer from './ZoomableImageViewer';
+import { copyPostMediaOffline, attachLocalPaths, removeOfflineMedia } from '../utils/offline';
 
 const OFFLINE_KEY = 'fv_offline_posts';
 
@@ -181,6 +182,7 @@ function PostSlide({
         const raw = await AsyncStorage.getItem(OFFLINE_KEY);
         const list = raw ? JSON.parse(raw) : [];
         await AsyncStorage.setItem(OFFLINE_KEY, JSON.stringify(list.filter((p) => p.id !== post.id)));
+        removeOfflineMedia(post.id);
       } catch {}
       return;
     }
@@ -188,9 +190,15 @@ function PostSlide({
       const raw = await AsyncStorage.getItem(OFFLINE_KEY);
       const list = raw ? JSON.parse(raw) : [];
       if (!list.find((p) => p.id === post.id)) {
-        const allUrls = fullUrls.length > 0 ? fullUrls : (post.thumbnailUrl ? [post.thumbnailUrl] : []);
-        list.unshift({ id: post.id, imageUrls: allUrls, imageUrl: allUrls[0] || null, author: post.author, caption: post.caption || '', savedAt: new Date().toISOString() });
+        // Feed-res is plenty for offline viewing and ~10x smaller than full-res
+        const saveUrls = feedUrls.length > 0 ? feedUrls : (post.thumbnailUrl ? [post.thumbnailUrl] : []);
+        list.unshift({ id: post.id, imageUrls: saveUrls, imageUrl: saveUrls[0] || null, author: post.author, caption: post.caption || '', savedAt: new Date().toISOString() });
         await AsyncStorage.setItem(OFFLINE_KEY, JSON.stringify(list));
+        // Background: make permanent decrypted copies so "offline" survives
+        // token expiry and cache eviction
+        copyPostMediaOffline(post.id, saveUrls)
+          .then((locals) => attachLocalPaths(post.id, locals))
+          .catch(() => {});
       }
       setPost((p) => ({ ...p, savedBy: [...(p.savedBy || []), me] }));
       savePost(post.id).then(({ savedBy }) => setPost((p) => ({ ...p, savedBy }))).catch(() => {});
@@ -273,6 +281,7 @@ function PostSlide({
             style={StyleSheet.absoluteFillObject}
             resizeMode={ResizeMode.COVER}
             shouldPlay={isActive && isPlaying}
+            active={isActive}
             isLooping
             isMuted={isMuted}
           />
@@ -288,7 +297,7 @@ function PostSlide({
               </Text>
             </View>
           )}
-          <TouchableOpacity style={styles.muteBtn} onPress={(e) => { e.stopPropagation?.(); setIsMuted((m) => !m); }} hitSlop={{ top: 10, right: 10, bottom: 10, left: 10 }}>
+          <TouchableOpacity style={styles.muteBtn} onPress={(e) => { e.stopPropagation?.(); setIsMuted((m) => !m); }} hitSlop={{ top: 10, right: 10, bottom: 10, left: 10 }} accessibilityRole="button" accessibilityLabel={isMuted ? 'Unmute video' : 'Mute video'}>
             <Feather name={isMuted ? 'volume-x' : 'volume-2'} size={16} color="#fff" />
           </TouchableOpacity>
         </TouchableOpacity>
@@ -325,7 +334,7 @@ function PostSlide({
         </View>
       )}
 
-      <TouchableOpacity style={styles.menuButton} onPress={() => setShowMenu(true)} hitSlop={{ top: 10, right: 10, bottom: 10, left: 10 }}>
+      <TouchableOpacity style={styles.menuButton} onPress={() => setShowMenu(true)} hitSlop={{ top: 10, right: 10, bottom: 10, left: 10 }} accessibilityRole="button" accessibilityLabel="Post options">
         <Feather name="more-vertical" size={20} color="#fff" />
       </TouchableOpacity>
 
@@ -340,19 +349,19 @@ function PostSlide({
 
       <View style={styles.actions}>
         {isOwn && (
-          <TouchableOpacity style={styles.action} onPress={openSendSheet} hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}>
+          <TouchableOpacity style={styles.action} onPress={openSendSheet} hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }} accessibilityRole="button" accessibilityLabel="Send post in a message">
             <Ionicons name="paper-plane-outline" size={26} color="#fff" />
           </TouchableOpacity>
         )}
-        <TouchableOpacity style={styles.action} onPress={handleLike} hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}>
+        <TouchableOpacity style={styles.action} onPress={handleLike} hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }} accessibilityRole="button" accessibilityLabel={isLiked ? 'Unlike' : 'Like'}>
           <Ionicons name={isLiked ? 'heart' : 'heart-outline'} size={28} color="#fff" />
           <Text style={styles.actionCount}>{post.likes?.length || 0}</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.action} onPress={() => onCommentPress?.(post)} hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}>
+        <TouchableOpacity style={styles.action} onPress={() => onCommentPress?.(post)} hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }} accessibilityRole="button" accessibilityLabel={`Comments, ${post.comments?.length || 0}`}>
           <Ionicons name="chatbubble-outline" size={26} color="#fff" />
           <Text style={styles.actionCount}>{post.comments?.length || 0}</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.action} onPress={handleSave} hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}>
+        <TouchableOpacity style={styles.action} onPress={handleSave} hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }} accessibilityRole="button" accessibilityLabel={isSaved ? 'Remove from saved' : 'Save for offline'}>
           <Ionicons name={isSaved ? 'bookmark' : 'bookmark-outline'} size={26} color="#fff" />
         </TouchableOpacity>
       </View>

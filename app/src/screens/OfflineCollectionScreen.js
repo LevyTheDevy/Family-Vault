@@ -10,6 +10,15 @@ import { Feather, Ionicons } from '@expo/vector-icons';
 import CachedImage from '../components/CachedImage';
 import { useTheme } from '../context/ThemeContext';
 import { savePost } from '../utils/api';
+import { removeOfflineMedia } from '../utils/offline';
+
+// Prefer the permanent decrypted local copies; fall back to the remote URL
+// per index for entries saved before local copies existed (or failed slots)
+function displayUrls(post) {
+  const remote = post?.imageUrls?.length ? post.imageUrls : (post?.imageUrl ? [post.imageUrl] : []);
+  if (!post?.localPaths?.length) return remote;
+  return post.localPaths.map((p, i) => p || remote[i]).filter(Boolean);
+}
 
 const OFFLINE_KEY = 'fv_offline_posts';
 const { width: W, height: H } = Dimensions.get('window');
@@ -17,7 +26,7 @@ const { width: W, height: H } = Dimensions.get('window');
 function GalleryModal({ post, onClose }) {
   const [page, setPage] = useState(0);
   const scrollRef = useRef(null);
-  const urls = post?.imageUrls?.length ? post.imageUrls : (post?.imageUrl ? [post.imageUrl] : []);
+  const urls = displayUrls(post);
 
   const handleScroll = (e) => {
     const idx = Math.round(e.nativeEvent.contentOffset.x / W);
@@ -58,7 +67,7 @@ function GalleryModal({ post, onClose }) {
           {!!post.caption && <Text style={gallery.caption} numberOfLines={3}>{post.caption}</Text>}
         </View>
 
-        <TouchableOpacity style={gallery.closeBtn} onPress={onClose} hitSlop={{ top: 12, right: 12, bottom: 12, left: 12 }}>
+        <TouchableOpacity style={gallery.closeBtn} onPress={onClose} hitSlop={{ top: 12, right: 12, bottom: 12, left: 12 }} accessibilityRole="button" accessibilityLabel="Close gallery">
           <Feather name="x" size={22} color="#fff" />
         </TouchableOpacity>
 
@@ -97,6 +106,7 @@ export default function OfflineCollectionScreen() {
           const next = posts.filter((p) => p.id !== id);
           setPosts(next);
           await AsyncStorage.setItem(OFFLINE_KEY, JSON.stringify(next));
+          removeOfflineMedia(id);
           savePost(id).catch(() => {});
         },
       },
@@ -121,8 +131,9 @@ export default function OfflineCollectionScreen() {
           contentContainerStyle={styles.grid}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.text} />}
           renderItem={({ item }) => {
-            const thumbUrl = (item.imageUrls && item.imageUrls[0]) || item.imageUrl || null;
-            const extraCount = (item.imageUrls?.length || 1) - 1;
+            const urls = displayUrls(item);
+            const thumbUrl = urls[0] || null;
+            const extraCount = urls.length - 1;
             return (
               <TouchableOpacity
                 style={[styles.cell, { borderColor: colors.border }]}
@@ -185,7 +196,6 @@ const gallery = StyleSheet.create({
   overlay: {
     position: 'absolute', bottom: 0, left: 0, right: 0,
     paddingHorizontal: 20, paddingBottom: 48, paddingTop: 80,
-    background: 'transparent',
   },
   author: { color: '#fff', fontSize: 15, fontWeight: '700', textShadowColor: 'rgba(0,0,0,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4 },
   caption: { color: 'rgba(255,255,255,0.85)', fontSize: 13, marginTop: 4, textShadowColor: 'rgba(0,0,0,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4 },

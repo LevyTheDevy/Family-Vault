@@ -11,7 +11,7 @@ import * as ImagePicker from 'expo-image-picker';
 import CachedImage from '../components/CachedImage';
 import { Video, ResizeMode } from 'expo-av';
 import {
-  fetchMessages, sendMessage, getMemberName, deleteConversation,
+  fetchMessages, fetchMessagesDigest, sendMessage, getMemberName, deleteConversation,
   addConversationMember, removeConversationMember, fetchFamilyMembers,
   sendChatMedia, markConversationRead, deleteChatMessage, getAvatarUrl,
   reactToMessage, isGifEnabled,
@@ -128,6 +128,8 @@ export default function ChatScreen({ route, navigation }) {
                 setShowGroupInfo(true);
               }}
               hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
+              accessibilityRole="button"
+              accessibilityLabel="Group members"
             >
               <Feather name="users" size={18} color={colors.text} />
             </TouchableOpacity>
@@ -158,6 +160,12 @@ export default function ChatScreen({ route, navigation }) {
   // redundant mark-read round trip.
   const lastFpRef = useRef('');
   const pollBusyRef = useRef(false);
+  // Server-side digest: polls fetch ~100 bytes and only do the full messages
+  // fetch when it changes. The stored digest is always the PRE-fetch snapshot,
+  // so a change landing between digest and full fetch costs one extra fetch —
+  // never a permanent miss. Old servers (404) fall back to full polling.
+  const digestRef = useRef('');
+  const digestSupportedRef = useRef(true);
   const fingerprint = (msgs) => msgs.map((m) =>
     `${m.id}:${m.readBy?.length || 0}:${Object.values(m.reactions || {}).reduce((s, a) => s + a.length, 0)}`
   ).join('|');
@@ -168,8 +176,19 @@ export default function ChatScreen({ route, navigation }) {
     if (silent && pollBusyRef.current) return;
     pollBusyRef.current = true;
     try {
+      let pendingDigest = null;
+      if (silent && digestSupportedRef.current) {
+        try {
+          const d = await fetchMessagesDigest(conversation.id);
+          if (d?.digest && d.digest === digestRef.current) return; // nothing changed
+          pendingDigest = d?.digest || null;
+        } catch {
+          digestSupportedRef.current = false;
+        }
+      }
       const data = await fetchMessages(conversation.id);
       if (!mountedRef.current) return;
+      if (pendingDigest) digestRef.current = pendingDigest;
       const fp = fingerprint(data);
       if (silent && fp === lastFpRef.current) return;
       lastFpRef.current = fp;
@@ -664,6 +683,8 @@ export default function ChatScreen({ route, navigation }) {
           style={[styles.plusBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
           onPress={() => setShowAttachMenu(true)}
           hitSlop={{ top: 8, right: 4, bottom: 8, left: 4 }}
+          accessibilityRole="button"
+          accessibilityLabel="Attach photo, video, or GIF"
         >
           <Feather name="plus" size={20} color={colors.textSub} />
         </TouchableOpacity>

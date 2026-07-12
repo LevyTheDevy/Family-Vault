@@ -4,6 +4,7 @@ import {
 } from 'react-native';
 import { Image } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system/legacy';
 import { Feather } from '@expo/vector-icons';
 import { useTheme, ACCENT_PRESETS } from '../context/ThemeContext';
 
@@ -33,13 +34,34 @@ export default function ThemeScreen() {
       allowsEditing: true,
       aspect: [9, 16],
     });
-    if (!r.canceled) setBgImage(r.assets[0].uri);
+    if (!r.canceled) {
+      // Copy out of the picker cache — the OS clears cache files, which made
+      // custom wallpapers silently disappear days later. Unique filename per
+      // pick so Image never serves a stale cached copy.
+      let uri = r.assets[0].uri;
+      try {
+        const dest = `${FileSystem.documentDirectory}fv-wallpaper-${Date.now()}.jpg`;
+        await FileSystem.copyAsync({ from: uri, to: dest });
+        if (bgImageUri?.startsWith(FileSystem.documentDirectory)) {
+          FileSystem.deleteAsync(bgImageUri, { idempotent: true }).catch(() => {});
+        }
+        uri = dest;
+      } catch {}
+      setBgImage(uri);
+    }
   };
 
   const removeBgImage = () => {
     Alert.alert('Remove background?', 'This will clear the app background image.', [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Remove', style: 'destructive', onPress: () => setBgImage(null) },
+      {
+        text: 'Remove', style: 'destructive', onPress: () => {
+          if (bgImageUri?.startsWith(FileSystem.documentDirectory)) {
+            FileSystem.deleteAsync(bgImageUri, { idempotent: true }).catch(() => {});
+          }
+          setBgImage(null);
+        },
+      },
     ]);
   };
 
@@ -121,22 +143,30 @@ export default function ThemeScreen() {
           <Text style={[styles.sectionLabel, { color: colors.textSub }]}>Accent Color</Text>
           <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border, padding: 16 }]}>
             <View style={styles.accentGrid}>
-              {ACCENT_PRESETS.map((c) => (
-                <TouchableOpacity
-                  key={c}
-                  style={[
-                    styles.accentSwatch,
-                    { backgroundColor: c, borderColor: colors.border },
-                    customAccent === c && { borderWidth: 3, borderColor: colors.text },
-                  ]}
-                  onPress={() => setAccent(c)}
-                  activeOpacity={0.8}
-                >
-                  {customAccent === c && (
-                    <Feather name="check" size={14} color={c === '#ffffff' ? '#000' : '#fff'} />
-                  )}
-                </TouchableOpacity>
-              ))}
+              {ACCENT_PRESETS.map((c) => {
+                // Black accent on a dark base (or white on light) makes every
+                // accent-colored control invisible — don't offer it
+                const invisible = (customBase === 'light' ? '#ffffff' : '#000000') === c;
+                if (invisible) return null;
+                return (
+                  <TouchableOpacity
+                    key={c}
+                    style={[
+                      styles.accentSwatch,
+                      { backgroundColor: c, borderColor: colors.border },
+                      customAccent === c && { borderWidth: 3, borderColor: colors.text },
+                    ]}
+                    onPress={() => setAccent(c)}
+                    activeOpacity={0.8}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Accent color ${c}`}
+                  >
+                    {customAccent === c && (
+                      <Feather name="check" size={14} color={c === '#ffffff' ? '#000' : '#fff'} />
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
             </View>
             <View style={[styles.previewRow, { marginTop: 16 }]}>
               <Text style={[styles.previewLabel, { color: colors.textSub }]}>Preview</Text>

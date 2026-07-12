@@ -6,13 +6,16 @@ import {
 import { Feather } from '@expo/vector-icons';
 import Avatar from '../components/Avatar';
 import * as ImagePicker from 'expo-image-picker';
-import * as FileSystem from 'expo-file-system';
+// legacy: documentDirectory/copyAsync don't exist on the SDK 54 main entry —
+// the bare import made the profile-photo copy silently no-op
+import * as FileSystem from 'expo-file-system/legacy';
 import {
   getMemberName, getProfilePicUri, getVaultUrl,
-  setProfilePicUri, setMemberName, setToken, updateProfile,
+  setProfilePicUri, setMemberName, setToken, updateProfile, updateCrypto,
   uploadAvatar, deleteAvatar, getAvatarUrl, renameAvatarCache,
 } from '../utils/api';
 import { clearAuth, updateStoredProfile } from '../utils/storage';
+import { wrapVaultKey } from '../utils/crypto';
 import { useVault } from '../context/VaultContext';
 import { useTheme } from '../context/ThemeContext';
 
@@ -42,7 +45,7 @@ function Sheet({ visible, onClose, colors, children }) {
 
 export default function SettingsScreen({ navigation }) {
   const { colors, mode } = useTheme();
-  const { vaults, activeIndex, removeVault, disconnectAll } = useVault();
+  const { vaults, activeIndex, removeVault, disconnectAll, getVaultKey, updateActiveAuth } = useVault();
   const [name, setName] = useState(getMemberName() || '');
   const [picUri, setPicUri] = useState(getProfilePicUri());
   const [avatarUrl, setAvatarUrl] = useState(() => getAvatarUrl(getMemberName()));
@@ -138,6 +141,9 @@ export default function SettingsScreen({ navigation }) {
       setName(newName);
       setAvatarUrl(getAvatarUrl(newName));
       await updateStoredProfile({ name: newName, token });
+      // Keep the multi-vault slot in sync — the old slot token carries the
+      // old name, which the server would trust on next launch
+      await updateActiveAuth({ token, name: newName });
       closeSheet();
     } catch (e) {
       setSheetError(e.message);
@@ -148,13 +154,35 @@ export default function SettingsScreen({ navigation }) {
   const handleSavePassword = async () => {
     if (!currentPw) return setSheetError('Enter your current password');
     if (!newPw) return setSheetError('Enter a new password');
-    if (newPw.length < 4) return setSheetError('Password must be at least 4 characters');
+    if (newPw.length < 8) return setSheetError('Password must be at least 8 characters');
     if (newPw !== confirmPw) return setSheetError('New passwords do not match');
     setSaving(true); setSheetError('');
     try {
-      const { token } = await updateProfile({ currentPassword: currentPw, newPassword: newPw });
-      setToken(token);
-      await updateStoredProfile({ token });
+      // The vault key on the server is wrapped with the password — re-wrap it
+      // with the new one or the next fresh login can't unlock E2E content
+      let crypto = null;
+      const vk = getVaultKey?.();
+      if (vk) crypto = await wrapVaultKey(vk, newPw);
+
+      const resp = await updateProfile({
+        currentPassword: currentPw, newPassword: newPw,
+        ...(crypto || {}),
+      });
+      setToken(resp.token);
+      await updateStoredProfile({ token: resp.token });
+      await updateActiveAuth({ token: resp.token });
+
+      if (crypto && !resp.cryptoUpdated) {
+        // Server predates atomic re-wrap — apply via the standalone endpoint
+        try {
+          await updateCrypto(crypto.kdfSalt, crypto.wrappedVaultKey);
+        } catch {
+          Alert.alert(
+            'One more step needed',
+            'Your password changed, but re-securing your encryption key failed. Please change your password once more while connected, or future logins may not unlock your content.',
+          );
+        }
+      }
       closeSheet();
       Alert.alert('Password updated', 'Your password has been changed.');
     } catch (e) {
@@ -204,7 +232,7 @@ export default function SettingsScreen({ navigation }) {
 
         {/* ── Profile header ── */}
         <View style={[styles.profileSection, { borderBottomColor: colors.border }]}>
-          <TouchableOpacity style={styles.avatarWrap} onPress={handleChangePic} activeOpacity={uploading ? 1 : 0.8} disabled={uploading}>
+          <TouchableOpacity style={styles.avatarWrap} onPress={handleChangePic} activeOpacity={uploading ? 1 : 0.8} disabled={uploading} accessibilityRole="button" accessibilityLabel="Change profile photo">
             <Avatar name={name} uri={avatarUrl} size={72} />
             {uploading
               ? <View style={[styles.cameraBadge, { backgroundColor: colors.surface }]}><ActivityIndicator size={10} color={colors.accent} /></View>
@@ -271,7 +299,7 @@ export default function SettingsScreen({ navigation }) {
                     {v.vaultUrl?.replace('http://', '')} · {v.name}
                   </Text>
                 </View>
-                <TouchableOpacity onPress={() => handleDisconnectOne(i)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <TouchableOpacity onPress={() => handleDisconnectOne(i)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} accessibilityRole="button" accessibilityLabel={`Disconnect from ${v.vaultName || 'vault'}`}>
                   <Feather name="x-circle" size={17} color={colors.textSub} />
                 </TouchableOpacity>
               </View>

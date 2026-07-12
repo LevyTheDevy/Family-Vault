@@ -19,12 +19,12 @@ function useTheme() {
     border:               dark ? '#1e1e1e'  : '#e0e0e0',
     borderFocus:          dark ? '#fff'     : '#000',
     text:                 dark ? '#fff'     : '#000',
-    textMuted:            dark ? '#555'     : '#888',
-    textDim:              dark ? '#333'     : '#bbb',
-    label:                dark ? '#555'     : '#888',
+    textMuted:            dark ? '#8e8e93'  : '#636366',
+    textDim:              dark ? '#6e6e73'  : '#8e8e93',
+    label:                dark ? '#8e8e93'  : '#636366',
     tabActiveBg:          dark ? '#fff'     : '#000',
     tabActiveText:        dark ? '#000'     : '#fff',
-    tabInactiveText:      dark ? '#444'     : '#999',
+    tabInactiveText:      dark ? '#8e8e93'  : '#75757a',
     primaryBtn:           dark ? '#fff'     : '#000',
     primaryBtnText:       dark ? '#000'     : '#fff',
     memberRowBg:          dark ? '#0a0a0a'  : '#f8f8f8',
@@ -35,7 +35,7 @@ function useTheme() {
     avatarPlaceholderBg:  dark ? '#111'     : '#e8e8e8',
     avatarPlaceholderBorder: dark ? '#222'  : '#d0d0d0',
     smallBtnBorder:       dark ? '#222'     : '#d0d0d0',
-    forgotText:           dark ? '#555'     : '#888',
+    forgotText:           dark ? '#8e8e93'  : '#636366',
     backBtnBorder:        dark ? '#333'     : '#ccc',
     errorColor:           '#e53935',
   };
@@ -52,7 +52,7 @@ async function apiFetch(url, options = {}) {
 
 export default function AuthScreen({ route, navigation }) {
   const { vaultUrl: paramVaultUrl, inviteCode: prefilledInvite, addMode = false, accessKey = null } = route.params || {};
-  const { initFirstVault, addVault: addVaultCtx, deriveAndStoreVaultKey, activeVault } = useVault();
+  const { initFirstVault, addVault: addVaultCtx, deriveAndStoreVaultKey, activeVault, vaults, reauthVault } = useVault();
   const vaultUrl = paramVaultUrl || activeVault?.vaultUrl || '';
   const base = BASE_URL(vaultUrl);
   const t = useTheme();
@@ -72,7 +72,19 @@ export default function AuthScreen({ route, navigation }) {
       : getStoredAuthHeader();
     apiFetch(`${base}/members`, { headers: memberHeaders })
       .then((data) => { setMembers(data); setLoadingMembers(false); })
-      .catch((e) => { setVaultError(`Cannot reach vault\n${vaultUrl}\n\n${e.message}`); setLoadingMembers(false); });
+      .catch((e) => {
+        // Expired-session re-auth: the stored token can't list members, but we
+        // know who was signed in — pre-select that name instead of showing a
+        // misleading "Invalid vault key" dead end
+        if (activeVault?.name && BASE_URL(activeVault.vaultUrl || '') === base && /vault key|token/i.test(e.message || '')) {
+          setMembers([{ id: 'me', name: activeVault.name }]);
+          setSelectedMember(activeVault.name);
+          setLoadingMembers(false);
+          return;
+        }
+        setVaultError(`Cannot reach vault\n${vaultUrl}\n\n${e.message}`);
+        setLoadingMembers(false);
+      });
   }, []);
 
   const onSuccess = async (token, name, picUri, requiresPasswordReset = false) => {
@@ -90,8 +102,15 @@ export default function AuthScreen({ route, navigation }) {
     if (addMode) {
       await addVaultCtx({ vaultUrl: base, token, name, vaultName, accessKey });
     } else {
-      await initFirstVault({ vaultUrl: base, token, name, vaultName, accessKey });
-      await saveAuth({ vaultUrl: base, token, name, profilePicUri: picUri });
+      // Re-auth to an already-connected vault updates that slot in place —
+      // going through initFirstVault here used to wipe every other vault
+      const existingIdx = vaults.findIndex((v) => BASE_URL(v.vaultUrl || '') === base);
+      if (existingIdx >= 0) {
+        await reauthVault(existingIdx, { token, name });
+      } else {
+        await initFirstVault({ vaultUrl: base, token, name, vaultName, accessKey });
+        await saveAuth({ vaultUrl: base, token, name, profilePicUri: picUri });
+      }
     }
 
     if (requiresPasswordReset) {
@@ -139,11 +158,24 @@ export default function AuthScreen({ route, navigation }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: selectedMember, password: signinPassword }),
       });
-      // Derive vault key from server-returned crypto params (non-blocking, best-effort)
+      // Derive the vault key — but never let a key mismatch block sign-in.
+      // (A password changed without a key re-wrap used to hard-lock users out
+      // here; degrade to "signed in, encryption locked" instead.)
+      let cryptoFailed = false;
       if (data.kdfSalt && data.wrappedVaultKey) {
-        await deriveAndStoreVaultKey(data.kdfSalt, data.wrappedVaultKey, signinPassword);
+        try {
+          await deriveAndStoreVaultKey(data.kdfSalt, data.wrappedVaultKey, signinPassword);
+        } catch {
+          cryptoFailed = true;
+        }
       }
       await onSuccess(data.token, data.name, null, data.requiresPasswordReset || false);
+      if (cryptoFailed) {
+        Alert.alert(
+          'Signed in — encryption locked',
+          'Your password could not unlock this vault\'s encryption key, so photos and messages may show as encrypted.\n\nIf you changed your password on another device, that device holds the key — change your password there once while online. Otherwise ask your admin to reset your password.',
+        );
+      }
     } catch (e) {
       Alert.alert('Sign in failed', e.message);
     } finally {

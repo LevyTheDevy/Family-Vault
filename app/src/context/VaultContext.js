@@ -2,10 +2,11 @@ import React, { createContext, useContext, useState, useEffect, useRef } from 'r
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import * as FileSystem from 'expo-file-system/legacy';
-import { setVault, setVaultCrypto, clearVaultCrypto } from '../utils/api';
+import { setVault, setVaultCrypto, clearVaultCrypto, refreshToken } from '../utils/api';
 import { loadAuth } from '../utils/storage';
 import { unwrapVaultKey, encryptText, decryptText, decryptImageText, encryptImageBin, decryptImageBin, b64ToBytes } from '../utils/crypto';
 import { clearDecryptedCache } from '../components/CachedImage';
+import { clearVideoCache } from '../components/CachedVideo';
 
 const VaultContext = createContext({});
 export const useVault = () => useContext(VaultContext);
@@ -63,9 +64,11 @@ async function eraseVaultKey(i) {
 }
 
 function purgeMediaCache() {
-  // fv/ is a legacy dir from old builds; fv-enc/ holds the decrypted media
+  // fv/ is a legacy dir from old builds; fv-enc/ holds decrypted images,
+  // fv-video/ decrypted videos — all plaintext, all wiped on vault changes
   FileSystem.deleteAsync(FileSystem.cacheDirectory + 'fv/', { idempotent: true }).catch(() => {});
   clearDecryptedCache().catch(() => {});
+  clearVideoCache().catch(() => {});
 }
 
 export function VaultProvider({ children }) {
@@ -76,6 +79,36 @@ export function VaultProvider({ children }) {
   // vault_key is held in memory only — never persisted to disk
   // It's a Uint8Array(32) derived from the user's password on each login
   const vaultKeyRef = useRef(null);
+  // A freshly derived key awaiting persistence. Keys used to be persisted to
+  // activeIndex at derive time — but during addVault flows activeIndex still
+  // points at the PREVIOUS vault, so the new key overwrote the old vault's
+  // slot. Now: derive stages the key here; initFirstVault/addVault/reauthVault
+  // persist it once the true slot index exists.
+  const pendingPersistRef = useRef(null);
+
+  // Bind (or clear) the crypto functions for a vault slot from its persisted
+  // key. Single source of truth used by launch, switch, and remove — switching
+  // vaults previously kept the OLD vault's key bound, decrypting everything
+  // with the wrong key until an app restart.
+  async function activateCryptoForIndex(index) {
+    const storedKey = await restoreVaultKey(index);
+    if (storedKey) {
+      vaultKeyRef.current = storedKey;
+      setVaultCrypto(
+        (text) => encryptText(text, storedKey),
+        (hex) => decryptText(hex, storedKey),
+        (b64) => decryptImageText(b64, storedKey),
+        (jpegBytes) => encryptImageBin(jpegBytes, storedKey),
+        (bytes) => decryptImageBin(bytes, storedKey),
+      );
+      setCryptoReady(true);
+      return true;
+    }
+    vaultKeyRef.current = null;
+    clearVaultCrypto();
+    setCryptoReady(false);
+    return false;
+  }
 
   useEffect(() => {
     initVaults();
@@ -123,20 +156,18 @@ export function VaultProvider({ children }) {
       setActiveIndex(activeIdx);
 
       // Restore vault key from SecureStore — skips password prompt on relaunch
-      const storedKey = await restoreVaultKey(activeIdx);
-      if (storedKey) {
-        vaultKeyRef.current = storedKey;
-        setVaultCrypto(
-          (text) => encryptText(text, storedKey),
-          (hex) => decryptText(hex, storedKey),
-          (b64) => decryptImageText(b64, storedKey),
-          (jpegBytes) => encryptImageBin(jpegBytes, storedKey),
-          (bytes) => decryptImageBin(bytes, storedKey),
-        );
-        setCryptoReady(true);
-      }
+      await activateCryptoForIndex(activeIdx);
 
       setReady(true);
+
+      // Sliding session: trade the stored token for a fresh full-length one.
+      // Old server (404) or offline: the existing token keeps working.
+      refreshToken().then(async ({ token: fresh }) => {
+        if (!fresh) return;
+        await writeToken(activeIdx, fresh);
+        const vv = list[activeIdx];
+        if (vv) setVault(vv.vaultUrl, fresh, vv.name);
+      }).catch(() => {});
 
       // Background: refresh vault names from server, update if changed
       Promise.all(list.map(async (v) => {
@@ -152,15 +183,25 @@ export function VaultProvider({ children }) {
     }
   }
 
+  /** Returns { needsAuth } — true when the target vault has no stored key */
   async function switchVault(index) {
     const vault = vaults[index];
-    if (!vault) return;
+    if (!vault) return { needsAuth: false };
     const token = await readToken(index);
-    if (!token) return;
+    if (!token) return { needsAuth: true };
+    pendingPersistRef.current = null;
     setVault(vault.vaultUrl, token, vault.name);
     setActiveIndex(index);
     await writeActiveIdx(index);
+    // Bind THIS vault's key (or lock crypto if it has none)
+    const hasKey = await activateCryptoForIndex(index);
     purgeMediaCache();
+    // Refresh this vault's session in the background
+    refreshToken().then(async ({ token: fresh }) => {
+      if (!fresh) return;
+      await writeToken(index, fresh);
+      setVault(vault.vaultUrl, fresh, vault.name);
+    }).catch(() => {});
     // Refresh name in background
     fetchVaultName(vault.vaultUrl).then(async (fresh) => {
       if (fresh && fresh !== vault.vaultName) {
@@ -169,6 +210,25 @@ export function VaultProvider({ children }) {
         setVaults(updated);
       }
     }).catch(() => {});
+    return { needsAuth: !hasKey };
+  }
+
+  // For NEW connections only (initFirstVault/addVault): persist the freshly
+  // derived key to its final slot — or, when this login produced no key
+  // (legacy vault, or crypto failure), erase whatever old key occupied the
+  // slot and unbind crypto so nothing is ever encrypted/decrypted with a
+  // previous vault's key. Re-auth flows must NOT use this: they preserve the
+  // existing stored key (it may be the only valid copy).
+  async function commitPendingKey(index) {
+    if (pendingPersistRef.current) {
+      await persistVaultKey(index, pendingPersistRef.current).catch(() => {});
+      pendingPersistRef.current = null;
+    } else {
+      await eraseVaultKey(index);
+      vaultKeyRef.current = null;
+      clearVaultCrypto();
+      setCryptoReady(false);
+    }
   }
 
   // Called on first login — replaces any existing vault list with a single entry
@@ -180,6 +240,7 @@ export function VaultProvider({ children }) {
     setVaults(list);
     setActiveIndex(0);
     setVault(vaultUrl, token, name);
+    await commitPendingKey(0);
     purgeMediaCache();
   }
 
@@ -193,7 +254,30 @@ export function VaultProvider({ children }) {
     setVaults(newList);
     setActiveIndex(newIdx);
     setVault(vaultUrl, token, name);
+    await commitPendingKey(newIdx);
     purgeMediaCache();
+  }
+
+  // Re-authenticate an EXISTING vault connection in place (fresh token, maybe
+  // a fresh key) — used for expired sessions and keyless switches. Previously
+  // this path went through initFirstVault, which wiped every other vault.
+  async function reauthVault(index, { token, name = null }) {
+    const v = vaults[index];
+    if (!v) return;
+    await writeToken(index, token);
+    if (name && name !== v.name) {
+      const list = vaults.map((x, i) => (i === index ? { ...x, name } : x));
+      await storeList(list);
+      setVaults(list);
+    }
+    await writeActiveIdx(index);
+    setActiveIndex(index);
+    setVault(v.vaultUrl, token, name || v.name);
+    if (pendingPersistRef.current) {
+      await persistVaultKey(index, pendingPersistRef.current).catch(() => {});
+      pendingPersistRef.current = null;
+    }
+    // Same vault — decrypted media cache stays valid, no purge
   }
 
   async function disconnectAll() {
@@ -202,16 +286,24 @@ export function VaultProvider({ children }) {
     setVaults([]);
     setActiveIndex(0);
     vaultKeyRef.current = null;
+    pendingPersistRef.current = null;
     clearVaultCrypto();
+    setCryptoReady(false);
     purgeMediaCache();
   }
 
-  /** Called after login/join when the server returns kdfSalt + wrappedVaultKey */
+  /**
+   * Called after login/join when the server returns kdfSalt + wrappedVaultKey.
+   * Persistence is deferred: the key is staged in pendingPersistRef and
+   * written by initFirstVault/addVault/reauthVault once the real slot index
+   * exists (persisting to activeIndex here corrupted the previous vault's
+   * slot during add-vault flows).
+   */
   async function deriveAndStoreVaultKey(kdfSalt, wrappedVaultKey, password) {
     if (!kdfSalt || !wrappedVaultKey || !password) return;
     const key = await unwrapVaultKey(kdfSalt, wrappedVaultKey, password);
     vaultKeyRef.current = key;
-    persistVaultKey(activeIndex, key).catch(() => {});
+    pendingPersistRef.current = key;
     setVaultCrypto(
       (text) => encryptText(text, key),          // enc: text — messages/captions
       (hex) => decryptText(hex, key),            // enc: hex decrypt
@@ -225,6 +317,20 @@ export function VaultProvider({ children }) {
   /** Returns the current in-memory vault key (Uint8Array(32) or null) */
   function getVaultKey() {
     return vaultKeyRef.current;
+  }
+
+  /**
+   * Applies a re-issued token (and possibly a renamed identity) to the ACTIVE
+   * vault slot. Rename/password/refresh flows previously updated only the
+   * legacy single-vault storage, leaving the slot token carrying the old
+   * name — which the server trusts, splitting the member's identity.
+   */
+  async function updateActiveAuth({ token = null, name = null } = {}) {
+    const v = vaults[activeIndex];
+    if (!v) return;
+    const effToken = token || (await readToken(activeIndex));
+    if (!effToken) return;
+    await reauthVault(activeIndex, { token: effToken, name });
   }
 
   async function removeVault(index) {
@@ -252,6 +358,8 @@ export function VaultProvider({ children }) {
     const v = newList[newActive];
     const token = await readToken(newActive);
     if (v && token) setVault(v.vaultUrl, token, v.name);
+    // Bind the surviving active vault's key — not the removed vault's
+    await activateCryptoForIndex(newActive);
     purgeMediaCache();
   }
 
@@ -269,6 +377,8 @@ export function VaultProvider({ children }) {
       disconnectAll,
       deriveAndStoreVaultKey,
       getVaultKey,
+      updateActiveAuth,
+      reauthVault,
     }}>
       {children}
     </VaultContext.Provider>

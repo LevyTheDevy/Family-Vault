@@ -1,9 +1,9 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, StyleSheet,
   ActivityIndicator, RefreshControl,
 } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useIsFocused } from '@react-navigation/native';
 import { Feather } from '@expo/vector-icons';
 import Avatar from '../components/Avatar';
 import CachedImage from '../components/CachedImage';
@@ -30,28 +30,40 @@ const VERBS = {
 
 export default function NotificationsScreen({ navigation }) {
   const { colors } = useTheme();
-  const { refresh } = useUnread();
+  const { refresh, unseenNotifs } = useUnread();
+  const isFocused = useIsFocused();
   const [items, setItems] = useState([]);
   const [unreadConvos, setUnreadConvos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const loadBusyRef = useRef(false);
 
   const load = async () => {
-    const [notifs, convos] = await Promise.all([
-      fetchNotifications().catch(() => null),
-      fetchConversations().catch(() => null),
-    ]);
-    // Keep last known content on a failed fetch instead of wiping to empty
-    if (notifs) setItems(notifs);
-    if (convos) setUnreadConvos(convos.filter((c) => (c.unreadCount || 0) > 0));
-    // Only clear the bell badge when the list actually rendered
-    if (notifs) markNotificationsSeen().then(refresh).catch(() => {});
+    if (loadBusyRef.current) return;
+    loadBusyRef.current = true;
+    try {
+      const [notifs, convos] = await Promise.all([
+        fetchNotifications().catch(() => null),
+        fetchConversations().catch(() => null),
+      ]);
+      // Keep last known content on a failed fetch instead of wiping to empty
+      if (notifs) setItems(notifs);
+      if (convos) setUnreadConvos(convos.filter((c) => (c.unreadCount || 0) > 0));
+      // Only clear the bell badge when the list actually rendered
+      if (notifs) markNotificationsSeen().then(refresh).catch(() => {});
+    } finally { loadBusyRef.current = false; }
   };
 
   useFocusEffect(useCallback(() => {
     setLoading(true);
     load().finally(() => setLoading(false));
   }, []));
+
+  // New notifications arriving while this screen is open (badge poll bumps
+  // unseenNotifs): pull them in instead of showing a stale list with a badge
+  useEffect(() => {
+    if (isFocused && unseenNotifs > 0 && !loading) load();
+  }, [unseenNotifs, isFocused]);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -95,7 +107,13 @@ export default function NotificationsScreen({ navigation }) {
     }
     const n = item.notif;
     return (
-      <View style={[styles.row, { borderBottomColor: colors.border }]}>
+      <TouchableOpacity
+        style={[styles.row, { borderBottomColor: colors.border }]}
+        onPress={n.postId ? () => navigation.navigate('PostViewer', { postId: n.postId }) : undefined}
+        activeOpacity={n.postId ? 0.7 : 1}
+        accessibilityRole="button"
+        accessibilityLabel={`${n.actor} ${VERBS[n.type] || n.type}`}
+      >
         <Avatar name={n.actor} uri={getAvatarUrl(n.actor)} size={40} />
         <View style={styles.rowText}>
           <Text style={[styles.rowTitle, { color: colors.text }]} numberOfLines={2}>
@@ -106,7 +124,7 @@ export default function NotificationsScreen({ navigation }) {
         </View>
         {!n.seen && <View style={[styles.dot, { backgroundColor: colors.accent }]} />}
         {n.thumbUrl && <CachedImage uri={n.thumbUrl} style={styles.thumb} resizeMode="cover" />}
-      </View>
+      </TouchableOpacity>
     );
   };
 
