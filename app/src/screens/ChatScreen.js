@@ -573,7 +573,9 @@ export default function ChatScreen({ route, navigation }) {
               <FlatList
                 data={groupMembers}
                 keyExtractor={(n) => n}
-                style={{ maxHeight: 400 }}
+                // flexShrink makes the list scroll inside the maxHeight sheet
+                // instead of clipping past the bottom edge
+                style={{ flexGrow: 0, flexShrink: 1 }}
                 renderItem={({ item }) => (
                   <View style={[styles.infoMemberRow, { borderBottomColor: colors.border }]}>
                     <Avatar name={item} uri={getAvatarUrl(item)} size={34} />
@@ -588,21 +590,28 @@ export default function ChatScreen({ route, navigation }) {
                     )}
                   </View>
                 )}
-                ListFooterComponent={isCreator ? (
-                  <>
-                    <Text style={[styles.infoAddLabel, { color: colors.textSub, borderTopColor: colors.border }]}>Add members</Text>
-                    {allMembers.filter((m) => !groupMembers.includes(m.name)).map((m) => (
-                      <TouchableOpacity key={m.id} style={[styles.infoMemberRow, { borderBottomColor: colors.border }]} onPress={async () => {
-                        try { const u = await addConversationMember(conversation.id, m.name); setGroupMembers(u.memberNames || []); }
-                        catch (e) { Alert.alert('Error', e.message); }
-                      }}>
-                        <Avatar name={m.name} uri={getAvatarUrl(m.name)} size={34} />
-                        <Text style={[styles.infoMemberName, { color: colors.text }]}>{m.name}</Text>
-                        <Feather name="plus" size={16} color={colors.text} />
-                      </TouchableOpacity>
-                    ))}
-                  </>
-                ) : null}
+                ListFooterComponent={isCreator ? (() => {
+                  const addable = allMembers.filter((m) => !groupMembers.includes(m.name));
+                  return (
+                    <>
+                      <Text style={[styles.infoAddLabel, { color: colors.textSub, borderTopColor: colors.border }]}>Add members</Text>
+                      {addable.length === 0 ? (
+                        <Text style={[styles.infoEmptyAdd, { color: colors.textSub }]}>
+                          Everyone in the vault is already in this group.
+                        </Text>
+                      ) : addable.map((m) => (
+                        <TouchableOpacity key={m.id} style={[styles.infoMemberRow, { borderBottomColor: colors.border }]} onPress={async () => {
+                          try { const u = await addConversationMember(conversation.id, m.name); setGroupMembers(u.memberNames || []); }
+                          catch (e) { Alert.alert('Error', e.message); }
+                        }}>
+                          <Avatar name={m.name} uri={getAvatarUrl(m.name)} size={34} />
+                          <Text style={[styles.infoMemberName, { color: colors.text }]}>{m.name}</Text>
+                          <Feather name="plus" size={16} color={colors.text} />
+                        </TouchableOpacity>
+                      ))}
+                    </>
+                  );
+                })() : null}
               />
             </View>
           </View>
@@ -776,4 +785,5 @@ const styles = StyleSheet.create({
   infoMemberRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 20, paddingVertical: 11, borderBottomWidth: 1 },
   infoMemberName: { flex: 1, fontSize: 14 },
   infoAddLabel: { fontSize: 11, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.8, paddingHorizontal: 20, paddingTop: 16, paddingBottom: 6, borderTopWidth: 1 },
+  infoEmptyAdd: { fontSize: 13, paddingHorizontal: 20, paddingVertical: 10, paddingBottom: 24 },
 });

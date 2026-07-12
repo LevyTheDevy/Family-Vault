@@ -240,7 +240,8 @@ const styles = StyleSheet.create({
   modalHandle: { width: 36, height: 4, borderRadius: 2, alignSelf: 'center', marginTop: 10, marginBottom: 6 },
   modalTitle: { fontSize: 16, fontWeight: '700', textAlign: 'center', paddingHorizontal: 20 },
   modalSub: { fontSize: 12, textAlign: 'center', marginTop: 2, marginBottom: 10 },
-  modalScroll: { paddingHorizontal: 20, paddingBottom: 30 },
+  // flexShrink makes the list scroll inside the maxHeight sheet instead of clipping
+  modalScroll: { paddingHorizontal: 20, marginBottom: 30, flexGrow: 0, flexShrink: 1 },
   sectionLabel: { fontSize: 11, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 8, marginTop: 4 },
   memberRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10, borderBottomWidth: 1 },
   memberAvatar: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },

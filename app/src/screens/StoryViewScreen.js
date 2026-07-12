@@ -388,7 +388,7 @@ const styles = StyleSheet.create({
   },
   panelCenter: { padding: 40, alignItems: 'center' },
   panelLoadingText: { color: '#444', fontSize: 13 },
-  panelScroll: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 24 },
+  panelScroll: { paddingHorizontal: 20, paddingTop: 8, marginBottom: 24, flexGrow: 0, flexShrink: 1 },
   panelSection: { color: '#555', fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 10, marginTop: 4 },
   panelRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#111' },
   panelAvatar: {

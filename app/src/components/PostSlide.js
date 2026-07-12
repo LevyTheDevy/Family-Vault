@@ -437,6 +437,7 @@ function PostSlide({
               <Text style={[styles.collectionEmpty, { color: colors.textSub }]}>No conversations yet.</Text>
             ) : (
               <FlatList
+                style={styles.sheetList}
                 data={sendConvos}
                 keyExtractor={(c) => String(c.id)}
                 renderItem={({ item }) => (
@@ -517,6 +518,7 @@ function PostSlide({
               ? <Text style={[styles.collectionEmpty, { color: colors.textSub }]}>No collections yet.{'\n'}Create one in the Collections tab.</Text>
               : (
                 <FlatList
+                  style={styles.sheetList}
                   data={collections}
                   keyExtractor={(c) => String(c.id)}
                   renderItem={({ item }) => (
@@ -583,7 +585,9 @@ const styles = StyleSheet.create({
   collectionRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 15, paddingHorizontal: 24, borderBottomWidth: 1 },
   collectionName: { fontSize: 15 },
   collectionCount: { fontSize: 13 },
-  insightScroll: { paddingHorizontal: 20 },
+  insightScroll: { paddingHorizontal: 20, flexGrow: 0, flexShrink: 1 },
+  // flexShrink makes lists scroll inside maxHeight sheets instead of clipping
+  sheetList: { flexGrow: 0, flexShrink: 1 },
   insightSection: { fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 14, marginBottom: 6 },
   insightEmpty: { fontSize: 13, paddingVertical: 10 },
   insightRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 9, borderBottomWidth: StyleSheet.hairlineWidth },

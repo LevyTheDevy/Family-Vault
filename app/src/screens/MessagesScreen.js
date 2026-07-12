@@ -2,6 +2,7 @@ import React, { useState, useCallback, useLayoutEffect, useEffect, useRef } from
 import {
   View, Text, FlatList, TouchableOpacity, StyleSheet,
   Alert, Modal, TextInput, ActivityIndicator, RefreshControl, ScrollView,
+  KeyboardAvoidingView,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { Feather } from '@expo/vector-icons';
@@ -33,6 +34,7 @@ export default function MessagesScreen({ navigation }) {
   const [showNew, setShowNew] = useState(false);
   const [newName, setNewName] = useState('');
   const [creating, setCreating] = useState(false);
+  const [selected, setSelected] = useState(new Set());
   const me = getMemberName();
   const lastFetchRef = useRef(0);
   const fetchingRef = useRef(false);
@@ -130,11 +132,23 @@ export default function MessagesScreen({ navigation }) {
     }
   };
 
+  // Everyone starts selected — matches the old "all members added" default
+  useEffect(() => {
+    if (showNew) setSelected(new Set(members.map((m) => m.name)));
+  }, [showNew]);
+
+  const toggleSelected = (name) => setSelected((prev) => {
+    const next = new Set(prev);
+    if (next.has(name)) next.delete(name); else next.add(name);
+    return next;
+  });
+
   const handleCreateGroup = async () => {
-    if (!newName.trim()) return;
+    if (!newName.trim() || selected.size === 0) return;
     setCreating(true);
     try {
-      const convo = await createConversation(newName.trim());
+      const memberNames = [me, ...members.filter((m) => selected.has(m.name)).map((m) => m.name)];
+      const convo = await createConversation(newName.trim(), memberNames);
       setShowNew(false);
       setNewName('');
       await loadConvos();
@@ -242,10 +256,13 @@ export default function MessagesScreen({ navigation }) {
       )}
 
       <Modal visible={showNew} transparent animationType="slide" onRequestClose={() => setShowNew(false)}>
-        <View style={styles.modalBackdrop}>
+        {/* behavior="padding" keeps the sheet above the keyboard — transparent
+            Android modals don't get resized by the system */}
+        <KeyboardAvoidingView style={styles.modalBackdrop} behavior="padding">
+          <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={() => { setShowNew(false); setNewName(''); }} />
           <View style={[styles.modalSheet, { backgroundColor: colors.card }]}>
             <Text style={[styles.modalTitle, { color: colors.text }]}>New Group Chat</Text>
-            <Text style={[styles.modalSub, { color: colors.textSub }]}>All family members will be added</Text>
+            <Text style={[styles.modalSub, { color: colors.textSub }]}>You're included automatically</Text>
             <TextInput
               style={[styles.modalInput, { backgroundColor: colors.surface, color: colors.text, borderColor: colors.border }]}
               placeholder="Group name"
@@ -256,14 +273,34 @@ export default function MessagesScreen({ navigation }) {
               returnKeyType="done"
               onSubmitEditing={handleCreateGroup}
             />
+            <Text style={[styles.pickLabel, { color: colors.textSub }]}>
+              Members ({selected.size + 1} of {members.length + 1})
+            </Text>
+            <ScrollView style={styles.memberPicker} keyboardShouldPersistTaps="handled">
+              {members.map((m) => {
+                const on = selected.has(m.name);
+                return (
+                  <TouchableOpacity
+                    key={m.id}
+                    style={[styles.pickRow, { borderBottomColor: colors.border }]}
+                    onPress={() => toggleSelected(m.name)}
+                    activeOpacity={0.7}
+                  >
+                    <Avatar name={m.name} uri={getAvatarUrl(m.name)} size={32} />
+                    <Text style={[styles.pickName, { color: colors.text }]}>{m.name}</Text>
+                    <Feather name={on ? 'check-circle' : 'circle'} size={20} color={on ? colors.accent : colors.textSub} />
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
             <View style={styles.modalButtons}>
               <TouchableOpacity style={[styles.modalCancel, { borderColor: colors.border }]} onPress={() => { setShowNew(false); setNewName(''); }}>
                 <Text style={[styles.modalCancelText, { color: colors.textSub }]}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.modalCreate, { backgroundColor: colors.accent }, (!newName.trim() || creating) && styles.modalCreateDisabled]}
+                style={[styles.modalCreate, { backgroundColor: colors.accent }, (!newName.trim() || creating || selected.size === 0) && styles.modalCreateDisabled]}
                 onPress={handleCreateGroup}
-                disabled={!newName.trim() || creating}
+                disabled={!newName.trim() || creating || selected.size === 0}
               >
                 {creating
                   ? <ActivityIndicator color={colors.accentText} size="small" />
@@ -271,7 +308,7 @@ export default function MessagesScreen({ navigation }) {
               </TouchableOpacity>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );
@@ -331,6 +368,11 @@ const styles = StyleSheet.create({
   modalTitle: { fontSize: 16, fontWeight: '600', textAlign: 'center' },
   modalSub: { fontSize: 13, textAlign: 'center', marginTop: -4 },
   modalInput: { borderWidth: 1, borderRadius: 8, padding: 14, fontSize: 15, marginTop: 4 },
+  pickLabel: { fontSize: 11, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 4 },
+  // flexShrink lets the list yield to the keyboard instead of clipping
+  memberPicker: { maxHeight: 240, flexGrow: 0, flexShrink: 1 },
+  pickRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 9, borderBottomWidth: StyleSheet.hairlineWidth },
+  pickName: { flex: 1, fontSize: 14 },
   modalButtons: { flexDirection: 'row', gap: 10, marginTop: 4 },
   modalCancel: { flex: 1, borderWidth: 1, borderRadius: 8, paddingVertical: 13, alignItems: 'center' },
   modalCancelText: { fontSize: 14 },

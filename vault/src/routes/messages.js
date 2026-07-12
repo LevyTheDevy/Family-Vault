@@ -65,6 +65,9 @@ router.post('/conversations', auth, (req, res) => {
   const all = Array.isArray(memberNames) && memberNames.length
     ? memberNames
     : db.getMembers().map((m) => m.name);
+  // The creator is always in their own group, whatever the client sent
+  if (!all.some((n) => String(n).toLowerCase() === req.member.name.toLowerCase()))
+    all.push(req.member.name);
   res.json(db.insertConversation(name.trim(), all, req.member.name));
 });
 

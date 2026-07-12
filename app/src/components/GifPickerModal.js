@@ -10,19 +10,21 @@ export default function GifPickerModal({ visible, onSelect, onClose }) {
   const [query, setQuery] = useState('');
   const [gifs, setGifs] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
   const timerRef = useRef(null);
 
   useEffect(() => {
-    if (!visible) { setQuery(''); setGifs([]); }
+    if (!visible) { setQuery(''); setGifs([]); setError(null); }
   }, [visible]);
 
   const search = async (q) => {
-    if (!q.trim()) { setGifs([]); setLoading(false); return; }
+    if (!q.trim()) { setGifs([]); setError(null); setLoading(false); return; }
     setLoading(true);
     try {
       const data = await searchGifs(q);
       setGifs(data.results || []);
-    } catch { setGifs([]); }
+      setError(data.error || null); // server explains config/network failures
+    } catch { setGifs([]); setError('Could not reach the vault.'); }
     finally { setLoading(false); }
   };
 
@@ -59,7 +61,9 @@ export default function GifPickerModal({ visible, onSelect, onClose }) {
             <View style={styles.center}><ActivityIndicator color="#fff" /></View>
           ) : gifs.length === 0 ? (
             <View style={styles.center}>
-              <Text style={styles.emptyText}>{query.trim() ? 'No GIFs found' : 'Search for GIFs above'}</Text>
+              <Text style={styles.emptyText}>
+                {error || (query.trim() ? 'No GIFs found' : 'Search for GIFs above')}
+              </Text>
             </View>
           ) : (
             <FlatList
