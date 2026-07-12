@@ -8,6 +8,10 @@ const db = require('../db/sqlite');
 
 const router = express.Router();
 const { STORAGE_DIR, VAULT_ACCESS_KEY, JWT_SECRET } = require('../config');
+
+// Family trust model: long sessions instead of weekly re-logins. The app also
+// silently refreshes (POST /refresh), so active users never see an expiry.
+const TOKEN_TTL = '365d';
 const { getVaultName } = require('../config');
 const AVATAR_DIR = path.join(STORAGE_DIR, 'avatars');
 
@@ -111,7 +115,7 @@ router.post('/join', rateLimited, (req, res) => {
       db.markInviteLinkUsed(String(inviteCode).trim().toUpperCase(), trimName);
     }
 
-    const jwtToken = jwt.sign({ id: member.id, name: member.name }, JWT_SECRET, { expiresIn: '7d' });
+    const jwtToken = jwt.sign({ id: member.id, name: member.name }, JWT_SECRET, { expiresIn: TOKEN_TTL });
     const userCrypto = db.getUserCrypto(member.id);
     res.json({
       token: jwtToken,
@@ -129,7 +133,7 @@ router.post('/login', rateLimited, (req, res) => {
   if (!name || !password) return res.status(400).json({ error: 'Name and password are required' });
   const member = db.loginMember(String(name).trim(), password);
   if (!member) return res.status(401).json({ error: 'Incorrect name or password' });
-  const token = jwt.sign({ id: member.id, name: member.name }, JWT_SECRET, { expiresIn: '7d' });
+  const token = jwt.sign({ id: member.id, name: member.name }, JWT_SECRET, { expiresIn: TOKEN_TTL });
   const userCrypto = db.getUserCrypto(member.id);
   res.json({
     token,
@@ -138,6 +142,13 @@ router.post('/login', rateLimited, (req, res) => {
     kdfSalt: userCrypto?.kdfSalt || null,
     wrappedVaultKey: userCrypto?.wrappedVaultKey || null,
   });
+});
+
+// Sliding sessions: exchange any still-valid token for a fresh full-length
+// one. The app calls this on launch, so active users never hit an expiry.
+router.post('/refresh', auth, (req, res) => {
+  const token = jwt.sign({ id: req.member.id, name: req.member.name }, JWT_SECRET, { expiresIn: TOKEN_TTL });
+  res.json({ token });
 });
 
 router.post('/request-reset', rateLimited, (req, res) => {
@@ -150,12 +161,20 @@ router.post('/request-reset', rateLimited, (req, res) => {
 });
 
 router.post('/change-password', auth, (req, res) => {
-  const { newPassword } = req.body;
+  const { newPassword, kdfSalt, wrappedVaultKey } = req.body;
   if (!newPassword) return res.status(400).json({ error: 'New password required' });
   try {
     db.confirmPasswordReset(req.member.name, String(newPassword));
-    const token = jwt.sign({ id: req.member.id, name: req.member.name }, JWT_SECRET, { expiresIn: '7d' });
-    res.json({ ok: true, token });
+    // The vault key is wrapped with the user's password — a password change
+    // must re-wrap it or the next fresh login can't unlock E2E content.
+    // Applied atomically here when the client sends the new wrapping.
+    let cryptoUpdated = false;
+    if (kdfSalt && wrappedVaultKey) {
+      db.setUserCrypto(req.member.id, String(kdfSalt), String(wrappedVaultKey));
+      cryptoUpdated = true;
+    }
+    const token = jwt.sign({ id: req.member.id, name: req.member.name }, JWT_SECRET, { expiresIn: TOKEN_TTL });
+    res.json({ ok: true, token, cryptoUpdated });
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
@@ -169,12 +188,15 @@ router.post('/update-crypto', auth, (req, res) => {
 });
 
 router.patch('/members/me', auth, (req, res) => {
-  const { newName, currentPassword, newPassword } = req.body;
+  const { newName, currentPassword, newPassword, kdfSalt, wrappedVaultKey } = req.body;
 
   // Require current password for any change
   if (!currentPassword) return res.status(400).json({ error: 'Current password required' });
   if (!db.verifyMember(req.member.name, currentPassword)) {
     return res.status(401).json({ error: 'Current password is incorrect' });
+  }
+  if (newPassword && String(newPassword).length < 8) {
+    return res.status(400).json({ error: 'Password must be at least 8 characters' });
   }
 
   try {
@@ -185,8 +207,15 @@ router.patch('/members/me', auth, (req, res) => {
       const newFile = path.join(AVATAR_DIR, `${safeName(updated.name)}.jpg`);
       try { if (fs.existsSync(oldFile)) fs.renameSync(oldFile, newFile); } catch {}
     }
-    const token = jwt.sign({ id: updated.id, name: updated.name }, JWT_SECRET, { expiresIn: '7d' });
-    res.json({ token, name: updated.name });
+    // Re-wrap of the E2E vault key rides along with a password change so the
+    // two can never get out of sync (see /change-password)
+    let cryptoUpdated = false;
+    if (newPassword && kdfSalt && wrappedVaultKey) {
+      db.setUserCrypto(updated.id, String(kdfSalt), String(wrappedVaultKey));
+      cryptoUpdated = true;
+    }
+    const token = jwt.sign({ id: updated.id, name: updated.name }, JWT_SECRET, { expiresIn: TOKEN_TTL });
+    res.json({ token, name: updated.name, cryptoUpdated });
   } catch (e) {
     res.status(400).json({ error: e.message });
   }

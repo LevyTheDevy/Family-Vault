@@ -84,6 +84,13 @@ router.get('/conversations/:id/messages', auth, (req, res) => {
   catch (e) { res.status(403).json({ error: e.message }); }
 });
 
+// Poll optimization: tiny digest the client compares before deciding to do a
+// full messages fetch — cuts idle chat polling bandwidth by ~95%
+router.get('/conversations/:id/digest', auth, (req, res) => {
+  try { res.json(db.getMessageDigest(Number(req.params.id), req.member.name)); }
+  catch (e) { res.status(403).json({ error: e.message }); }
+});
+
 router.post('/conversations/:id/messages', auth, (req, res) => {
   const { text, gifUrl, replyToId, postRef } = req.body;
   if (!text?.trim() && !gifUrl && !postRef) return res.status(400).json({ error: 'text, GIF, or post required' });

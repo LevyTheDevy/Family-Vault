@@ -91,6 +91,16 @@ router.get('/posts', auth, (req, res) => {
   res.json({ posts: posts.map((p) => withBase(req, p)), total, offset, limit });
 });
 
+// Single post — used by notification taps. Same visibility rule as the feed.
+router.get('/posts/:id', auth, (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid post id' });
+  const post = db.getPostById(id, req.member.name);
+  if (!post) return res.status(404).json({ error: 'Post not found' });
+  if (!db.canAccessPost(req.member.name, id)) return res.status(403).json({ error: 'No access to this post' });
+  res.json(withBase(req, post));
+});
+
 router.post('/posts', auth, (req, res, next) => {
   uploadFields(req, res, (err) => {
     if (err) {

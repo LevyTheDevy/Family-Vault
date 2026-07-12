@@ -424,16 +424,26 @@ function normalizeComment(row) {
     imageX: row.image_x, imageY: row.image_y, imageIndex: row.image_index, createdAt: iso(row.created_at) };
 }
 
-function normalizeStory(row) {
+function normalizeStory(row, requester = null) {
   if (!row) return null;
   const clipRows = sql.prepare('SELECT filename, thumb_filename, duration_secs FROM story_clips WHERE story_id = ? ORDER BY position').all(row.id);
+  // Viewer/reaction identities are author-only (same rule the UI presents and
+  // that posts enforce). Other members get just their OWN entries — enough
+  // for the "watched" ring and "my reaction" state, without shipping the full
+  // viewer list to every client.
+  const isAuthor = requester == null || row.author.toLowerCase() === String(requester).toLowerCase();
+  const own = (name) => requester != null && String(name).toLowerCase() === String(requester).toLowerCase();
+  const views = sql.prepare('SELECT viewer, viewed_at FROM story_views WHERE story_id = ?').all(row.id).map(v => ({ viewer: v.viewer, viewedAt: iso(v.viewed_at) }));
+  const reactions = sql.prepare('SELECT author, emoji, created_at FROM story_reactions WHERE story_id = ?').all(row.id).map(r => ({ author: r.author, emoji: r.emoji, createdAt: iso(r.created_at) }));
+  const likes = sql.prepare('SELECT member_name FROM story_likes WHERE story_id = ?').all(row.id).map(r => r.member_name);
   return {
     id: row.id, filename: row.filename, author: row.author, caption: row.caption,
     durationHours: row.duration_hours, expiresAt: row.expires_at, createdAt: iso(row.created_at),
     clips:     clipRows.map(r => ({ filename: r.filename, thumbFilename: r.thumb_filename, durationSecs: r.duration_secs })),
-    views:     sql.prepare('SELECT viewer, viewed_at FROM story_views WHERE story_id = ?').all(row.id).map(v => ({ viewer: v.viewer, viewedAt: iso(v.viewed_at) })),
-    reactions: sql.prepare('SELECT author, emoji, created_at FROM story_reactions WHERE story_id = ?').all(row.id).map(r => ({ author: r.author, emoji: r.emoji, createdAt: iso(r.created_at) })),
-    likes:     sql.prepare('SELECT member_name FROM story_likes WHERE story_id = ?').all(row.id).map(r => r.member_name),
+    views:     isAuthor ? views : views.filter(v => own(v.viewer)),
+    viewCount: views.length,
+    reactions: isAuthor ? reactions : reactions.filter(r => own(r.author)),
+    likes:     isAuthor ? likes : likes.filter(own),
   };
 }
 
@@ -776,8 +786,12 @@ const db = {
     return { posts: rows.map(r => normalizePost(r, memberName)), total };
   },
 
-  getPostById(id) {
-    return normalizePost(sql.prepare('SELECT * FROM posts WHERE id = ?').get(id));
+  getPostById(id, requester = null) {
+    return normalizePost(sql.prepare('SELECT * FROM posts WHERE id = ?').get(id), requester);
+  },
+
+  canAccessPost(memberName, postId) {
+    return canAccessPost(memberName, postId);
   },
 
   insertPost(filenames, author, caption, mediaType = 'image', videoFilename = null, thumbnailFilename = null, durationSecs = null, feedFilenames = [], thumbFilenames = [], videoClips = []) {
@@ -865,12 +879,13 @@ const db = {
     return normalizeStory(sql.prepare('SELECT * FROM stories WHERE id = ?').get(storyId));
   },
 
-  getActiveStories() {
+  getActiveStories(requester = null) {
     // expires_at is an ISO string ('...T...Z') while datetime('now') is
     // 'YYYY-MM-DD HH:MM:SS' — comparing the two lexicographically made every
     // story created "today" non-expired until the UTC date rolled over.
     // Compare ISO-to-ISO instead.
-    return sql.prepare('SELECT * FROM stories WHERE expires_at > ?').all(new Date().toISOString()).map(normalizeStory);
+    return sql.prepare('SELECT * FROM stories WHERE expires_at > ?').all(new Date().toISOString())
+      .map(row => normalizeStory(row, requester));
   },
 
   deleteStory(id, requestingMember) {
@@ -1124,6 +1139,24 @@ const db = {
     return sql.prepare('SELECT * FROM messages WHERE conversation_id = ? ORDER BY id DESC LIMIT 200').all(conversationId)
       .reverse()
       .map(m => normalizeMessage(m, requestingMember));
+  },
+
+  // Cheap change-detection for the 3s chat poll — a hash over
+  // id:reads:reactions per message (~100 bytes) instead of re-shipping the
+  // full 200-message payload when nothing changed.
+  getMessageDigest(conversationId, requestingMember) {
+    const c = sql.prepare('SELECT id FROM conversations WHERE id = ?').get(conversationId);
+    if (!c) throw new Error('Conversation not found');
+    if (requestingMember && !sql.prepare('SELECT 1 FROM conversation_members WHERE conversation_id = ? AND member_name = ? COLLATE NOCASE').get(conversationId, requestingMember))
+      throw new Error('Not a member of this conversation');
+    const rows = sql.prepare(`
+      SELECT m.id,
+        (SELECT COUNT(*) FROM message_reads mr WHERE mr.message_id = m.id) AS reads,
+        (SELECT COUNT(*) FROM message_reactions x WHERE x.message_id = m.id) AS reacts
+      FROM messages m WHERE m.conversation_id = ?
+      ORDER BY m.id DESC LIMIT 200`).all(conversationId);
+    const fp = rows.map(r => `${r.id}:${r.reads}:${r.reacts}`).join('|');
+    return { digest: crypto.createHash('sha1').update(fp).digest('hex'), lastId: rows[0]?.id || 0 };
   },
 
   insertMessage(conversationId, author, text, gifUrl = null, imageUrl = null, videoUrl = null, replyToId = null, postRef = null) {

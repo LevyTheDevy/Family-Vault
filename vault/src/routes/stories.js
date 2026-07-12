@@ -53,7 +53,7 @@ function withStoryUrls(req, story) {
 }
 
 router.get('/stories', auth, (req, res) => {
-  res.json(db.getActiveStories().map((s) => withStoryUrls(req, s)));
+  res.json(db.getActiveStories(req.member.name).map((s) => withStoryUrls(req, s)));
 });
 
 router.post('/stories', auth, (req, res, next) => {
@@ -93,26 +93,33 @@ router.delete('/stories/:id', auth, (req, res) => {
   catch (e) { res.status(400).json({ error: e.message }); }
 });
 
-// Record that the current member viewed this story (idempotent)
+// Record that the current member viewed this story (idempotent).
+// Response carries no viewer identities — both client call sites ignore it.
 router.post('/stories/:id/view', auth, (req, res) => {
-  const views = db.recordStoryView(Number(req.params.id), req.member.name);
-  res.json({ views: views || [] });
+  db.recordStoryView(Number(req.params.id), req.member.name);
+  res.json({ ok: true, views: [] });
 });
 
-// Toggle a reaction emoji on a story
+// Toggle a reaction emoji on a story — echo back only the caller's own entry
 router.post('/stories/:id/reactions', auth, (req, res) => {
   const { emoji } = req.body;
   if (!emoji) return res.status(400).json({ error: 'emoji required' });
   try {
-    const reactions = db.toggleStoryReaction(Number(req.params.id), req.member.name, emoji);
+    const me = req.member.name.toLowerCase();
+    const reactions = db.toggleStoryReaction(Number(req.params.id), req.member.name, emoji)
+      .filter((r) => r.author.toLowerCase() === me);
     res.json({ reactions });
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
-// Toggle like on a Daily
+// Toggle like on a Daily — echo back only the caller's own entry
 router.post('/stories/:id/like', auth, (req, res) => {
-  try { res.json({ likes: db.toggleStoryLike(Number(req.params.id), req.member.name) }); }
-  catch (e) { res.status(400).json({ error: e.message }); }
+  try {
+    const me = req.member.name.toLowerCase();
+    const likes = db.toggleStoryLike(Number(req.params.id), req.member.name)
+      .filter((n) => n.toLowerCase() === me);
+    res.json({ likes });
+  } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
 // Get viewers + reactions — only the story author can call this
