@@ -105,7 +105,9 @@ export default function ChatScreen({ route, navigation }) {
   const [allMembers, setAllMembers] = useState([]);
   const [replyTo, setReplyTo] = useState(null); // { id, author, text }
   const [contextMsg, setContextMsg] = useState(null); // message with emoji picker open
+  const [mentionQuery, setMentionQuery] = useState(null);
   const listRef = useRef();
+  const inputRef = useRef();
   const pollRef = useRef();
   const mountedRef = useRef(true);
   const me = getMemberName();
@@ -239,6 +241,23 @@ export default function ChatScreen({ route, navigation }) {
     }
   }, [messages.length]);
 
+  const handleTextChange = (val) => {
+    setText(val);
+    const match = val.match(/@(\w*)$/);
+    setMentionQuery(match ? match[1] : null);
+  };
+
+  const insertMention = (name) => {
+    const newText = text.replace(/@\w*$/, `@${name} `);
+    setText(newText);
+    setMentionQuery(null);
+    inputRef.current?.focus();
+  };
+
+  const mentionSuggestions = mentionQuery !== null && isGroupChat
+    ? groupMembers.filter((n) => n.toLowerCase().startsWith(mentionQuery.toLowerCase()) && n.toLowerCase() !== me.toLowerCase())
+    : [];
+
   const handleSend = async () => {
     const trimmed = text.trim();
     if (!trimmed || sending) return;
@@ -247,6 +266,7 @@ export default function ChatScreen({ route, navigation }) {
     setSending(true);
     setText('');
     setReplyTo(null);
+    setMentionQuery(null);
     nearBottomRef.current = true;
     try {
       const msg = await sendMessage(conversation.id, trimmed, null, replyId);
@@ -489,7 +509,13 @@ export default function ChatScreen({ route, navigation }) {
                       ) : null}
 
                       {item.text ? (
-                        <Text style={[styles.bubbleText, { color: txtColor }]}>{item.text}</Text>
+                        <Text style={[styles.bubbleText, { color: txtColor }]}>
+                          {item.text.split(/(@\w+)/g).map((part, i) =>
+                            /^@\w+$/.test(part)
+                              ? <Text key={i} style={{ fontWeight: '700' }}>{part}</Text>
+                              : part
+                          )}
+                        </Text>
                       ) : null}
                     </View>
                   </TouchableOpacity>
@@ -677,6 +703,22 @@ export default function ChatScreen({ route, navigation }) {
         </View>
       )}
 
+      {/* @mention suggestions */}
+      {mentionSuggestions.length > 0 && (
+        <View style={[styles.mentionList, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          {mentionSuggestions.map((name) => (
+            <TouchableOpacity
+              key={name}
+              style={[styles.mentionRow, { borderBottomColor: colors.border }]}
+              onPress={() => insertMention(name)}
+            >
+              <Avatar name={name} uri={getAvatarUrl(name)} size={26} />
+              <Text style={[styles.mentionName, { color: colors.text }]}>{name}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
+
       {/* Input row */}
       <View style={[styles.inputRow, { borderTopColor: colors.border, backgroundColor: colors.surface }]}>
         <TouchableOpacity
@@ -689,11 +731,12 @@ export default function ChatScreen({ route, navigation }) {
           <Feather name="plus" size={20} color={colors.textSub} />
         </TouchableOpacity>
         <TextInput
+          ref={inputRef}
           style={[styles.input, { backgroundColor: colors.inputBg, color: colors.text, borderColor: colors.border }]}
-          placeholder="Message..."
+          placeholder="Message…  @mention"
           placeholderTextColor={colors.textSub}
           value={text}
-          onChangeText={setText}
+          onChangeText={handleTextChange}
           returnKeyType="send"
           onSubmitEditing={handleSend}
           blurOnSubmit={false}
@@ -780,6 +823,11 @@ const styles = StyleSheet.create({
   replyBar: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 10, borderTopWidth: 1, borderLeftWidth: 3 },
   replyBarAuthor: { fontSize: 12, fontWeight: '700', marginBottom: 1 },
   replyBarText: { fontSize: 12 },
+
+  // @mention
+  mentionList: { borderTopWidth: 1, borderBottomWidth: 1, overflow: 'hidden' },
+  mentionRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 9, paddingHorizontal: 16, borderBottomWidth: StyleSheet.hairlineWidth },
+  mentionName: { fontSize: 14, fontWeight: '600' },
 
   // Input
   inputRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 8, paddingHorizontal: 12, paddingVertical: 10, borderTopWidth: 1 },
