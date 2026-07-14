@@ -353,11 +353,11 @@ export const fetchPost = async (id) => {
 export const savePost = (id) =>
   req(`${_url}/posts/${id}/save`, { method: 'POST', headers: h() });
 
-export const addComment = async (id, text, gifUrl = null, imageX = null, imageY = null, imageIndex = 0) => {
+export const addComment = async (id, text, gifUrl = null, imageX = null, imageY = null, imageIndex = 0, replyToId = null) => {
   const encText = await encryptMsg(text);
   const comment = await req(`${_url}/posts/${id}/comments`, {
     method: 'POST', headers: jh(),
-    body: JSON.stringify({ text: encText, gifUrl, imageX, imageY, imageIndex }),
+    body: JSON.stringify({ text: encText, gifUrl, imageX, imageY, imageIndex, replyToId }),
   });
   return { ...comment, text: await decryptMsg(comment.text) };
 };
@@ -365,9 +365,15 @@ export const addComment = async (id, text, gifUrl = null, imageX = null, imageY 
 export const deleteComment = (postId, commentId) =>
   req(`${_url}/posts/${postId}/comments/${commentId}`, { method: 'DELETE', headers: h() });
 
+export const reactToComment = (postId, commentId, emoji) =>
+  req(`${_url}/posts/${postId}/comments/${commentId}/react`, {
+    method: 'POST', headers: jh(),
+    body: JSON.stringify({ emoji }),
+  });
+
 // Upload one or more photos as a single post — generates full/feed/thumb variants per image.
 // onProgress(pct 0..1, stage) — encrypt phase maps to 0..0.4, upload to 0.4..1.
-export async function uploadPhotos(imageUris, caption = '', collectionId = null, onProgress = null) {
+export async function uploadPhotos(imageUris, caption = '', collectionId = null, onProgress = null, tags = []) {
   const uris = Array.isArray(imageUris) ? imageUris : [imageUris];
   const report = (pct, stage) => { try { onProgress?.(pct, stage); } catch {} };
   report(0.02, 'Encrypting');
@@ -392,6 +398,7 @@ export async function uploadPhotos(imageUris, caption = '', collectionId = null,
   });
   const encCaption = await encryptMsg(caption);
   if (encCaption) fd.append('caption', encCaption);
+  if (tags && tags.length > 0) fd.append('tags', JSON.stringify(tags));
   // Server files the post into this collection at creation (falls back to All
   // Members) so new-post notifications only reach people who can see it
   if (collectionId) fd.append('collectionId', String(collectionId));
@@ -556,7 +563,7 @@ export const fetchStories = async () => {
 export const deleteStory = (id) =>
   req(`${_url}/stories/${id}`, { method: 'DELETE', headers: h() });
 
-export async function uploadStory(imageUri, durationHours, caption = '', videoClips = null, onProgress = null) {
+export async function uploadStory(imageUri, durationHours, caption = '', videoClips = null, onProgress = null, audienceJson = 'all') {
   const fd = new FormData();
   if (videoClips && videoClips.length > 0) {
     // Video story with encrypted clips
@@ -574,6 +581,7 @@ export async function uploadStory(imageUri, durationHours, caption = '', videoCl
       : { uri: encUri, type: 'image/jpeg', name: 'story.jpg' });
   }
   fd.append('durationHours', String(durationHours));
+  fd.append('audience', audienceJson || 'all');
   const encCaption = await encryptMsg(caption);
   if (encCaption) fd.append('caption', encCaption);
   const story = onProgress
@@ -757,6 +765,9 @@ export const fetchNotifications = () =>
 
 export const markNotificationsSeen = () =>
   req(`${_url}/notifications/seen`, { method: 'POST', headers: h() });
+
+export const clearNotifications = () =>
+  req(`${_url}/notifications`, { method: 'DELETE', headers: h() });
 
 // { unseenNotifications, unreadMessages } — cheap poll for the badges
 export const fetchNotifSummary = () =>

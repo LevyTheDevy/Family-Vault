@@ -72,6 +72,13 @@ router.post('/stories', auth, (req, res, next) => {
 
   const hours = Math.min(Math.max(Number(req.body.durationHours) || 24, 1), 168);
   const caption = String(req.body.caption || '').slice(0, 300);
+  const rawAudience = req.body.audience || 'all';
+  const audienceJson = rawAudience === 'all' ? 'all' : (() => {
+    try {
+      const a = JSON.parse(rawAudience);
+      return JSON.stringify(Array.isArray(a) ? a.map(String) : []);
+    } catch { return 'all'; }
+  })();
 
   if (videoClipFiles.length > 0) {
     const clips = videoClipFiles.map((f, i) => ({
@@ -80,11 +87,11 @@ router.post('/stories', auth, (req, res, next) => {
       durationSecs: req.body[`clipDuration${i}`] ? Number(req.body[`clipDuration${i}`]) : null,
     }));
     // Use first clip filename as the primary story filename for backward compat
-    const story = db.insertStory(videoClipFiles[0].filename, req.member.name, hours, caption, clips);
+    const story = db.insertStory(videoClipFiles[0].filename, req.member.name, hours, caption, clips, audienceJson);
     return res.json(withStoryUrls(req, story));
   }
 
-  const story = db.insertStory(photoFile.filename, req.member.name, hours, caption);
+  const story = db.insertStory(photoFile.filename, req.member.name, hours, caption, [], audienceJson);
   res.json(withStoryUrls(req, story));
 });
 

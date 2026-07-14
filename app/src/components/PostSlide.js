@@ -344,6 +344,13 @@ function PostSlide({
           <Text style={styles.author}>{post.author}</Text>
         </View>
         {!!post.caption && <Text style={styles.caption} numberOfLines={3}>{post.caption}</Text>}
+        {post.tags && post.tags.length > 0 && (
+          <View style={styles.tagsRow}>
+            {post.tags.map((t, i) => (
+              <Text key={i} style={styles.tag}>#{t}</Text>
+            ))}
+          </View>
+        )}
         <Text style={styles.timestamp}>{timeAgo(post.createdAt)}</Text>
       </View>
 
@@ -561,6 +568,8 @@ const styles = StyleSheet.create({
   authorRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
   author: { color: '#fff', fontWeight: '700', fontSize: 14, textShadowColor: 'rgba(0,0,0,0.9)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 6 },
   caption: { color: '#fff', fontSize: 13, lineHeight: 18, marginBottom: 4, textShadowColor: 'rgba(0,0,0,0.9)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 6 },
+  tagsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginBottom: 4 },
+  tag: { color: 'rgba(255,255,255,0.85)', fontSize: 12, fontWeight: '600', textShadowColor: 'rgba(0,0,0,0.9)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4 },
   timestamp: { color: 'rgba(255,255,255,0.7)', fontSize: 11, textShadowColor: 'rgba(0,0,0,0.9)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4 },
   actions: { position: 'absolute', bottom: 28, right: 10, alignItems: 'center', gap: 18, backgroundColor: 'rgba(0,0,0,0.25)', borderRadius: 30, paddingVertical: 12, paddingHorizontal: 8 },
   action: { alignItems: 'center', gap: 3 },

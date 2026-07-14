@@ -6,7 +6,7 @@ import {
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { Image as ExpoImage } from 'expo-image';
-import { addComment, deleteComment, getMemberName, getAvatarUrl, isGifEnabled } from '../utils/api';
+import { addComment, deleteComment, reactToComment, getMemberName, getAvatarUrl, isGifEnabled, fetchFamilyMembers } from '../utils/api';
 import Avatar from './Avatar';
 import GifPickerModal from './GifPickerModal';
 import { useTheme } from '../context/ThemeContext';
@@ -19,6 +19,20 @@ function timeAgo(iso) {
   return `${Math.floor(s / 86400)}d`;
 }
 
+function renderMentionText(txt, textStyle) {
+  if (!txt) return null;
+  const parts = txt.split(/(@\w+)/g);
+  return (
+    <Text style={textStyle}>
+      {parts.map((part, i) =>
+        /^@\w+$/.test(part)
+          ? <Text key={i} style={{ fontWeight: '700' }}>{part}</Text>
+          : part
+      )}
+    </Text>
+  );
+}
+
 export default function CommentsSheet({ post, onClose, onUpdated }) {
   const { colors } = useTheme();
   const [comments, setComments] = useState(post?.comments || []);
@@ -27,10 +41,35 @@ export default function CommentsSheet({ post, onClose, onUpdated }) {
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [showGifPicker, setShowGifPicker] = useState(false);
   const [viewingPin, setViewingPin] = useState(null);
+  const [members, setMembers] = useState([]);
+  const [mentionQuery, setMentionQuery] = useState(null);
+  const [replyingTo, setReplyingTo] = useState(null); // { id, author }
+  const [emojiTarget, setEmojiTarget] = useState(null); // comment to react to
   const inputRef = useRef();
   const listRef = useRef();
   const me = getMemberName();
   const { height: windowH } = useWindowDimensions();
+
+  useEffect(() => {
+    fetchFamilyMembers().then((m) => setMembers(m)).catch(() => {});
+  }, []);
+
+  const handleTextChange = (val) => {
+    setText(val);
+    const match = val.match(/@(\w*)$/);
+    setMentionQuery(match ? match[1] : null);
+  };
+
+  const insertMention = (name) => {
+    const newText = text.replace(/@\w*$/, `@${name} `);
+    setText(newText);
+    setMentionQuery(null);
+    inputRef.current?.focus();
+  };
+
+  const mentionSuggestions = mentionQuery !== null
+    ? members.filter((m) => m.name.toLowerCase().startsWith(mentionQuery.toLowerCase()))
+    : [];
 
   // The sheet needs a real height: with only maxHeight, the flex:1 list inside
   // collapsed to its 240px minHeight and comments showed through a ~120px
@@ -61,15 +100,33 @@ export default function CommentsSheet({ post, onClose, onUpdated }) {
     if (!trimmed || sending) return;
     setSending(true);
     try {
-      const comment = await addComment(post.id, trimmed);
+      const comment = await addComment(post.id, trimmed, null, null, null, 0, replyingTo?.id || null);
       const next = [...comments, comment];
       setComments(next);
       setText('');
+      setReplyingTo(null);
+      setMentionQuery(null);
       onUpdated?.({ ...post, comments: next });
       setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 80);
     } catch (e) {
       Alert.alert('Error', e.message || 'Could not send comment');
     } finally { setSending(false); }
+  };
+
+  const handleReact = async (comment, emoji) => {
+    setEmojiTarget(null);
+    try {
+      const { reactions } = await reactToComment(post.id, comment.id, emoji);
+      setComments((prev) => prev.map((c) => c.id === comment.id ? { ...c, reactions } : c));
+    } catch {}
+  };
+
+  const startReply = (comment) => {
+    setReplyingTo({ id: comment.id, author: comment.author });
+    const prefix = `@${comment.author} `;
+    setText((t) => t.startsWith(prefix) ? t : prefix);
+    setMentionQuery(null);
+    inputRef.current?.focus();
   };
 
   const handleSendGif = async (gif) => {
@@ -131,35 +188,96 @@ export default function CommentsSheet({ post, onClose, onUpdated }) {
               ListEmptyComponent={
                 <Text style={[styles.empty, { color: colors.textSub }]}>No comments yet. Be the first!</Text>
               }
-              renderItem={({ item }) => (
-                <TouchableOpacity onLongPress={() => handleDeleteComment(item)} activeOpacity={0.8}>
-                  <View style={[styles.comment, { borderBottomColor: colors.border }]}>
-                    <Avatar name={item.author} uri={getAvatarUrl(item.author)} size={34} />
-                    <View style={styles.commentBody}>
-                      <View style={styles.commentMeta}>
-                        <Text style={[styles.commentAuthor, { color: colors.text }]}>{item.author}</Text>
-                        <Text style={[styles.commentTime, { color: colors.textSub }]}>{timeAgo(item.createdAt)}</Text>
+              renderItem={({ item }) => {
+                const myReaction = item.reactions && Object.entries(item.reactions).find(([, names]) => names.some(n => n.toLowerCase() === me.toLowerCase()));
+                const reactionEntries = item.reactions ? Object.entries(item.reactions).filter(([, names]) => names.length > 0) : [];
+                const replyParent = item.replyToId ? comments.find(c => c.id === item.replyToId) : null;
+                return (
+                  <TouchableOpacity
+                    onLongPress={() => setEmojiTarget(item)}
+                    onPress={() => {}}
+                    activeOpacity={0.85}
+                    delayLongPress={350}
+                  >
+                    <View style={[styles.comment, { borderBottomColor: colors.border }]}>
+                      <Avatar name={item.author} uri={getAvatarUrl(item.author)} size={34} />
+                      <View style={styles.commentBody}>
+                        <View style={styles.commentMeta}>
+                          <Text style={[styles.commentAuthor, { color: colors.text }]}>{item.author}</Text>
+                          <Text style={[styles.commentTime, { color: colors.textSub }]}>{timeAgo(item.createdAt)}</Text>
+                        </View>
+                        {replyParent && (
+                          <View style={[styles.replyContext, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                            <Text style={[styles.replyContextAuthor, { color: colors.textSub }]}>@{replyParent.author}</Text>
+                            {replyParent.text ? (
+                              <Text style={[styles.replyContextText, { color: colors.textMuted }]} numberOfLines={1}>{replyParent.text}</Text>
+                            ) : <Text style={[styles.replyContextText, { color: colors.textMuted }]}>GIF</Text>}
+                          </View>
+                        )}
+                        {item.gifUrl ? (
+                          <ExpoImage source={{ uri: item.gifUrl }} style={styles.commentGif} contentFit="cover" autoplay />
+                        ) : null}
+                        {item.text ? renderMentionText(item.text, [styles.commentText, { color: colors.text }]) : null}
+                        {reactionEntries.length > 0 && (
+                          <View style={styles.reactionsRow}>
+                            {reactionEntries.map(([emoji, names]) => (
+                              <TouchableOpacity
+                                key={emoji}
+                                style={[styles.reactionBadge, { backgroundColor: colors.surface, borderColor: myReaction?.[0] === emoji ? colors.accent : colors.border }]}
+                                onPress={() => handleReact(item, emoji)}
+                              >
+                                <Text style={styles.reactionEmoji}>{emoji}</Text>
+                                <Text style={[styles.reactionCount, { color: colors.textSub }]}>{names.length}</Text>
+                              </TouchableOpacity>
+                            ))}
+                          </View>
+                        )}
+                        <View style={styles.commentActions}>
+                          {item.imageX != null && (
+                            <TouchableOpacity style={styles.pinBadge} onPress={() => setViewingPin(item)}>
+                              <Feather name="map-pin" size={11} color={colors.textSub} />
+                              <Text style={[styles.pinBadgeText, { color: colors.textSub }]}>View on photo</Text>
+                            </TouchableOpacity>
+                          )}
+                          <TouchableOpacity style={styles.replyBtn} onPress={() => startReply(item)}>
+                            <Text style={[styles.replyBtnText, { color: colors.textSub }]}>Reply</Text>
+                          </TouchableOpacity>
+                          {item.author === me && (
+                            <TouchableOpacity style={styles.replyBtn} onPress={() => handleDeleteComment(item)}>
+                              <Text style={[styles.replyBtnText, { color: colors.textSub }]}>Delete</Text>
+                            </TouchableOpacity>
+                          )}
+                        </View>
                       </View>
-                      {item.gifUrl ? (
-                        <ExpoImage source={{ uri: item.gifUrl }} style={styles.commentGif} contentFit="cover" autoplay />
-                      ) : null}
-                      {item.text ? (
-                        <Text style={[styles.commentText, { color: colors.text }]}>{item.text}</Text>
-                      ) : null}
-                      {item.imageX != null && (
-                        <TouchableOpacity style={styles.pinBadge} onPress={() => setViewingPin(item)}>
-                          <Feather name="map-pin" size={11} color={colors.textSub} />
-                          <Text style={[styles.pinBadgeText, { color: colors.textSub }]}>View on photo</Text>
-                        </TouchableOpacity>
-                      )}
-                      {item.author === me && (
-                        <Text style={[styles.deleteHint, { color: colors.textMuted }]}>Hold to delete</Text>
-                      )}
                     </View>
-                  </View>
-                </TouchableOpacity>
-              )}
+                  </TouchableOpacity>
+                );
+              }}
             />
+
+            {replyingTo && (
+              <View style={[styles.replyBanner, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                <Text style={[styles.replyBannerText, { color: colors.textSub }]}>Replying to <Text style={{ fontWeight: '700', color: colors.text }}>@{replyingTo.author}</Text></Text>
+                <TouchableOpacity onPress={() => { setReplyingTo(null); setText(''); }} hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}>
+                  <Feather name="x" size={14} color={colors.textSub} />
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {mentionSuggestions.length > 0 && (
+              <View style={[styles.mentionList, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                {mentionSuggestions.map((m) => (
+                  <TouchableOpacity
+                    key={m.id}
+                    style={[styles.mentionRow, { borderBottomColor: colors.border }]}
+                    onPress={() => insertMention(m.name)}
+                  >
+                    <Avatar name={m.name} uri={getAvatarUrl(m.name)} size={24} />
+                    <Text style={[styles.mentionName, { color: colors.text }]}>{m.name}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
 
             <View style={[styles.inputRow, { borderTopColor: colors.border }]}>
               {isGifEnabled() && (
@@ -174,10 +292,10 @@ export default function CommentsSheet({ post, onClose, onUpdated }) {
               <TextInput
                 ref={inputRef}
                 style={[styles.input, { backgroundColor: colors.inputBg, color: colors.text, borderColor: colors.border }]}
-                placeholder="Add a comment..."
+                placeholder="Add a comment… @mention"
                 placeholderTextColor={colors.textSub}
                 value={text}
-                onChangeText={setText}
+                onChangeText={handleTextChange}
                 returnKeyType="send"
                 onSubmitEditing={handleSend}
                 blurOnSubmit={false}
@@ -198,6 +316,22 @@ export default function CommentsSheet({ post, onClose, onUpdated }) {
       </Modal>
 
       <GifPickerModal visible={showGifPicker} onClose={() => setShowGifPicker(false)} onSelect={handleSendGif} />
+
+      {/* Emoji reaction picker */}
+      <Modal visible={!!emojiTarget} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setEmojiTarget(null)}>
+        <TouchableOpacity style={styles.emojiBackdrop} activeOpacity={1} onPress={() => setEmojiTarget(null)}>
+          <View style={[styles.emojiPicker, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <Text style={[styles.emojiTitle, { color: colors.textSub }]}>React</Text>
+            <View style={styles.emojiRow}>
+              {['❤️','😂','😮','😢','😡','👍','🔥','🙌'].map((e) => (
+                <TouchableOpacity key={e} style={styles.emojiBtn} onPress={() => emojiTarget && handleReact(emojiTarget, e)}>
+                  <Text style={styles.emojiChar}>{e}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        </TouchableOpacity>
+      </Modal>
 
       {/* Photo pin viewer — always dark (viewing a photo) */}
       <Modal visible={!!viewingPin} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setViewingPin(null)}>
@@ -244,6 +378,27 @@ const styles = StyleSheet.create({
   deleteHint: { fontSize: 10, marginTop: 3 },
   pinBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 5 },
   pinBadgeText: { fontSize: 11, textDecorationLine: 'underline' },
+  mentionList: { borderWidth: 1, borderRadius: 8, marginHorizontal: 12, marginBottom: 4, overflow: 'hidden' },
+  mentionRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, paddingHorizontal: 12, borderBottomWidth: StyleSheet.hairlineWidth },
+  mentionName: { fontSize: 14, fontWeight: '600' },
+  replyBanner: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 14, paddingVertical: 7, borderTopWidth: StyleSheet.hairlineWidth },
+  replyBannerText: { fontSize: 13 },
+  replyContext: { borderLeftWidth: 2, paddingLeft: 8, paddingVertical: 3, borderRadius: 4, marginBottom: 4 },
+  replyContextAuthor: { fontSize: 12, fontWeight: '600' },
+  replyContextText: { fontSize: 12, lineHeight: 16 },
+  reactionsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginTop: 4 },
+  reactionBadge: { flexDirection: 'row', alignItems: 'center', gap: 3, borderWidth: 1, borderRadius: 12, paddingHorizontal: 7, paddingVertical: 3 },
+  reactionEmoji: { fontSize: 14 },
+  reactionCount: { fontSize: 12, fontWeight: '600' },
+  commentActions: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 4 },
+  replyBtn: { paddingVertical: 2 },
+  replyBtnText: { fontSize: 12, fontWeight: '600' },
+  emojiBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
+  emojiPicker: { borderRadius: 16, borderWidth: 1, padding: 16, gap: 10, width: 280 },
+  emojiTitle: { fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.8, textAlign: 'center' },
+  emojiRow: { flexDirection: 'row', justifyContent: 'space-around' },
+  emojiBtn: { padding: 8 },
+  emojiChar: { fontSize: 26 },
   inputRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingVertical: 12, borderTopWidth: 1 },
   gifBtn: { borderRadius: 8, paddingVertical: 8, paddingHorizontal: 10, borderWidth: 1 },
   gifBtnText: { fontSize: 11, fontWeight: '700', letterSpacing: 0.5 },

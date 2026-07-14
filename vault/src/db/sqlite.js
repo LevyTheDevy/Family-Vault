@@ -339,6 +339,19 @@ for (const colDef of [
 for (const colDef of ['feed_filename TEXT', 'thumb_filename TEXT']) {
   try { sql.exec(`ALTER TABLE post_images ADD COLUMN ${colDef}`); } catch {}
 }
+try { sql.exec(`ALTER TABLE posts ADD COLUMN tags_json TEXT NOT NULL DEFAULT '[]'`); } catch {}
+try { sql.exec(`ALTER TABLE stories ADD COLUMN audience_json TEXT NOT NULL DEFAULT 'all'`); } catch {}
+try { sql.exec(`ALTER TABLE comments ADD COLUMN reply_to_id INTEGER`); } catch {}
+sql.exec(`
+  CREATE TABLE IF NOT EXISTS comment_reactions (
+    comment_id  INTEGER NOT NULL REFERENCES comments(id) ON DELETE CASCADE,
+    member_name TEXT NOT NULL COLLATE NOCASE,
+    emoji       TEXT NOT NULL,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (comment_id, member_name)
+  );
+  CREATE INDEX IF NOT EXISTS idx_comment_reactions_comment ON comment_reactions(comment_id);
+`);
 
 // Indexes for hot lookups. Compound-PK tables (post_images, post_likes, post_saves,
 // story_views, message_reads, conversation_members) already index their leading
@@ -415,13 +428,25 @@ function normalizePost(row, requestingMember = null) {
     id: row.id, author: row.author, caption: row.caption,
     mediaType: row.media_type, videoFilename: row.video_filename,
     thumbnailFilename: row.thumbnail_filename, durationSecs: row.duration_secs,
+    tags: (() => { try { return JSON.parse(row.tags_json || '[]'); } catch { return []; } })(),
     createdAt: iso(row.created_at), ...postExtras(row.id, isOwner),
   };
 }
 
 function normalizeComment(row) {
-  return { id: row.id, author: row.author, text: row.text, gifUrl: row.gif_url,
-    imageX: row.image_x, imageY: row.image_y, imageIndex: row.image_index, createdAt: iso(row.created_at) };
+  const reactions = sql.prepare('SELECT member_name, emoji FROM comment_reactions WHERE comment_id = ?').all(row.id);
+  const reactionMap = {};
+  for (const r of reactions) {
+    if (!reactionMap[r.emoji]) reactionMap[r.emoji] = [];
+    reactionMap[r.emoji].push(r.member_name);
+  }
+  return {
+    id: row.id, author: row.author, text: row.text, gifUrl: row.gif_url,
+    imageX: row.image_x, imageY: row.image_y, imageIndex: row.image_index,
+    replyToId: row.reply_to_id || null,
+    reactions: reactionMap,
+    createdAt: iso(row.created_at),
+  };
 }
 
 function normalizeStory(row, requester = null) {
@@ -794,10 +819,10 @@ const db = {
     return canAccessPost(memberName, postId);
   },
 
-  insertPost(filenames, author, caption, mediaType = 'image', videoFilename = null, thumbnailFilename = null, durationSecs = null, feedFilenames = [], thumbFilenames = [], videoClips = []) {
+  insertPost(filenames, author, caption, mediaType = 'image', videoFilename = null, thumbnailFilename = null, durationSecs = null, feedFilenames = [], thumbFilenames = [], videoClips = [], tagsJson = '[]') {
     const arr = Array.isArray(filenames) ? filenames : [filenames];
-    const res = sql.prepare('INSERT INTO posts (author, caption, media_type, video_filename, thumbnail_filename, duration_secs) VALUES (?,?,?,?,?,?)').run(
-      author, caption || '', mediaType, videoFilename || null, thumbnailFilename || null, durationSecs ?? null);
+    const res = sql.prepare('INSERT INTO posts (author, caption, media_type, video_filename, thumbnail_filename, duration_secs, tags_json) VALUES (?,?,?,?,?,?,?)').run(
+      author, caption || '', mediaType, videoFilename || null, thumbnailFilename || null, durationSecs ?? null, tagsJson || '[]');
     const postId = res.lastInsertRowid;
     arr.forEach((f, i) => sql.prepare('INSERT INTO post_images (post_id, filename, position, feed_filename, thumb_filename) VALUES (?,?,?,?,?)').run(
       postId, f, i, feedFilenames[i] || null, thumbFilenames[i] || null));
@@ -846,11 +871,34 @@ const db = {
     sql.prepare('INSERT OR IGNORE INTO post_views (post_id, member_name) VALUES (?,?)').run(postId, memberName);
   },
 
-  addComment(postId, author, text, gifUrl = null, imageX = null, imageY = null, imageIndex = 0) {
+  addComment(postId, author, text, gifUrl = null, imageX = null, imageY = null, imageIndex = 0, replyToId = null) {
     if (!sql.prepare('SELECT id FROM posts WHERE id = ?').get(postId)) throw new Error('Post not found');
-    const res = sql.prepare('INSERT INTO comments (post_id, author, text, gif_url, image_x, image_y, image_index) VALUES (?,?,?,?,?,?,?)').run(
-      postId, author, text, gifUrl || null, imageX ?? null, imageY ?? null, Number(imageIndex) || 0);
+    const res = sql.prepare('INSERT INTO comments (post_id, author, text, gif_url, image_x, image_y, image_index, reply_to_id) VALUES (?,?,?,?,?,?,?,?)').run(
+      postId, author, text, gifUrl || null, imageX ?? null, imageY ?? null, Number(imageIndex) || 0, replyToId ? Number(replyToId) : null);
     return normalizeComment(sql.prepare('SELECT * FROM comments WHERE id = ?').get(res.lastInsertRowid));
+  },
+
+  toggleCommentReaction(commentId, memberName, emoji) {
+    const existing = sql.prepare('SELECT 1 FROM comment_reactions WHERE comment_id = ? AND member_name = ? COLLATE NOCASE').get(commentId, memberName);
+    if (existing) {
+      sql.prepare('DELETE FROM comment_reactions WHERE comment_id = ? AND member_name = ? COLLATE NOCASE').run(commentId, memberName);
+    } else {
+      sql.prepare('INSERT OR REPLACE INTO comment_reactions (comment_id, member_name, emoji) VALUES (?,?,?)').run(commentId, memberName, emoji);
+    }
+    const rows = sql.prepare('SELECT member_name, emoji FROM comment_reactions WHERE comment_id = ?').all(commentId);
+    const map = {};
+    for (const r of rows) { if (!map[r.emoji]) map[r.emoji] = []; map[r.emoji].push(r.member_name); }
+    return map;
+  },
+
+  getPostCommenters(postId, excludeMember) {
+    const rows = sql.prepare('SELECT DISTINCT author FROM comments WHERE post_id = ?').all(postId);
+    return rows.map(r => r.author).filter(a => a.toLowerCase() !== String(excludeMember).toLowerCase());
+  },
+
+  getCommentAuthor(commentId) {
+    const row = sql.prepare('SELECT author FROM comments WHERE id = ?').get(commentId);
+    return row ? row.author : null;
   },
 
   deleteComment(postId, commentId, requestingMember) {
@@ -869,10 +917,10 @@ const db = {
   },
 
   // ── Stories ────────────────────────────────────────────────────────────────
-  insertStory(filename, author, durationHours, caption = '', clips = []) {
+  insertStory(filename, author, durationHours, caption = '', clips = [], audienceJson = 'all') {
     const expiresAt = new Date(Date.now() + durationHours * 3_600_000).toISOString();
-    const res = sql.prepare('INSERT INTO stories (filename, author, caption, duration_hours, expires_at) VALUES (?,?,?,?,?)').run(
-      filename, author, caption || '', durationHours, expiresAt);
+    const res = sql.prepare('INSERT INTO stories (filename, author, caption, duration_hours, expires_at, audience_json) VALUES (?,?,?,?,?,?)').run(
+      filename, author, caption || '', durationHours, expiresAt, audienceJson || 'all');
     const storyId = res.lastInsertRowid;
     clips.forEach((c, i) => sql.prepare('INSERT INTO story_clips (story_id, filename, thumb_filename, position, duration_secs) VALUES (?,?,?,?,?)').run(
       storyId, c.filename, c.thumbFilename || null, i, c.durationSecs ?? null));
@@ -880,12 +928,18 @@ const db = {
   },
 
   getActiveStories(requester = null) {
-    // expires_at is an ISO string ('...T...Z') while datetime('now') is
-    // 'YYYY-MM-DD HH:MM:SS' — comparing the two lexicographically made every
-    // story created "today" non-expired until the UTC date rolled over.
-    // Compare ISO-to-ISO instead.
-    return sql.prepare('SELECT * FROM stories WHERE expires_at > ?').all(new Date().toISOString())
-      .map(row => normalizeStory(row, requester));
+    const nowIso = new Date().toISOString();
+    const rows = sql.prepare('SELECT * FROM stories WHERE expires_at > ?').all(nowIso);
+    return rows.filter(row => {
+      const aud = row.audience_json || 'all';
+      if (aud === 'all') return true;
+      if (!requester) return true;
+      if (row.author.toLowerCase() === String(requester).toLowerCase()) return true;
+      try {
+        const list = JSON.parse(aud);
+        return Array.isArray(list) && list.some(n => n.toLowerCase() === String(requester).toLowerCase());
+      } catch { return true; }
+    }).map(row => normalizeStory(row, requester));
   },
 
   deleteStory(id, requestingMember) {
@@ -1264,6 +1318,10 @@ const db = {
 
   purgeOldNotifications(days = 30) {
     return sql.prepare(`DELETE FROM notifications WHERE created_at < datetime('now', ?)`).run(`-${days} days`).changes;
+  },
+
+  clearNotifications(recipient) {
+    sql.prepare('DELETE FROM notifications WHERE recipient = ? COLLATE NOCASE').run(recipient);
   },
 
   // ── Push tokens ────────────────────────────────────────────────────────────

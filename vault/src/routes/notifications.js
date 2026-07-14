@@ -26,6 +26,11 @@ router.post('/notifications/seen', auth, (req, res) => {
   res.json({ ok: true });
 });
 
+router.delete('/notifications', auth, (req, res) => {
+  db.clearNotifications(req.member.name);
+  res.json({ ok: true });
+});
+
 // Lightweight badge poll: unseen notifications + total unread messages.
 // gifEnabled rides along so clients can hide GIF buttons on vaults with no key.
 router.get('/notifications/summary', auth, (req, res) => {

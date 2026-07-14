@@ -1,7 +1,7 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, StyleSheet,
-  ActivityIndicator, RefreshControl,
+  ActivityIndicator, RefreshControl, Alert,
 } from 'react-native';
 import { useFocusEffect, useIsFocused } from '@react-navigation/native';
 import { Feather } from '@expo/vector-icons';
@@ -9,6 +9,7 @@ import Avatar from '../components/Avatar';
 import CachedImage from '../components/CachedImage';
 import {
   fetchNotifications, markNotificationsSeen, fetchConversations, getAvatarUrl,
+  clearNotifications,
 } from '../utils/api';
 import { useTheme } from '../context/ThemeContext';
 import { useUnread } from '../context/UnreadContext';
@@ -26,6 +27,10 @@ const VERBS = {
   like: 'liked your post',
   comment: 'commented on your post',
   post: 'shared a new post',
+  mention: 'mentioned you in a comment',
+  reply: 'replied to your comment',
+  comment_activity: 'also commented on a post',
+  comment_reaction: 'reacted to your comment',
 };
 
 export default function NotificationsScreen({ navigation }) {
@@ -37,6 +42,35 @@ export default function NotificationsScreen({ navigation }) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const loadBusyRef = useRef(false);
+
+  const handleClearAll = () => {
+    Alert.alert('Clear all notifications?', undefined, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Clear', style: 'destructive', onPress: async () => {
+          await clearNotifications().catch(() => {});
+          setItems([]);
+          refresh();
+        },
+      },
+    ]);
+  };
+
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerRight: () => (
+        <TouchableOpacity
+          onPress={handleClearAll}
+          style={{ marginRight: 16 }}
+          hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
+          accessibilityRole="button"
+          accessibilityLabel="Clear all notifications"
+        >
+          <Text style={{ color: colors.textSub, fontSize: 13 }}>Clear all</Text>
+        </TouchableOpacity>
+      ),
+    });
+  }, [navigation, colors]);
 
   const load = async () => {
     if (loadBusyRef.current) return;

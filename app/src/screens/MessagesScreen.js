@@ -134,9 +134,8 @@ export default function MessagesScreen({ navigation }) {
     }
   };
 
-  // Everyone starts selected — matches the old "all members added" default
   useEffect(() => {
-    if (showNew) setSelected(new Set(members.map((m) => m.name)));
+    if (showNew) setSelected(new Set());
   }, [showNew]);
 
   const toggleSelected = (name) => setSelected((prev) => {
@@ -276,7 +275,7 @@ export default function MessagesScreen({ navigation }) {
               onSubmitEditing={handleCreateGroup}
             />
             <Text style={[styles.pickLabel, { color: colors.textSub }]}>
-              Members ({selected.size + 1} of {members.length + 1})
+              Members — tap to add ({selected.size} selected)
             </Text>
             <ScrollView style={styles.memberPicker} keyboardShouldPersistTaps="handled">
               {members.map((m) => {

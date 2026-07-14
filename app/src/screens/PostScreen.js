@@ -12,6 +12,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import VideoTrim, { showEditor } from 'react-native-video-trim';
 import { fetchCollections } from '../utils/api';
 import { enqueuePhotos, enqueueVideo } from '../utils/uploadQueue';
+import PhotoAdjustModal from '../components/PhotoAdjustModal';
 import { useTheme } from '../context/ThemeContext';
 import { useToast } from '../context/ToastContext';
 
@@ -191,6 +192,32 @@ function EditStep({ assets, onNext, onBack, insets }) {
   const [editedAssets, setEditedAssets] = useState(assets);
   const [cropping, setCropping] = useState(false);
   const [previewIdx, setPreviewIdx] = useState(0);
+  const [showAdjust, setShowAdjust] = useState(false);
+
+  const moveLeft = () => {
+    if (previewIdx === 0) return;
+    setEditedAssets((prev) => {
+      const next = [...prev];
+      [next[previewIdx - 1], next[previewIdx]] = [next[previewIdx], next[previewIdx - 1]];
+      return next;
+    });
+    setPreviewIdx((i) => i - 1);
+  };
+
+  const moveRight = () => {
+    if (previewIdx >= editedAssets.length - 1) return;
+    setEditedAssets((prev) => {
+      const next = [...prev];
+      [next[previewIdx], next[previewIdx + 1]] = [next[previewIdx + 1], next[previewIdx]];
+      return next;
+    });
+    setPreviewIdx((i) => i + 1);
+  };
+
+  const applyAdjust = (uri) => {
+    setShowAdjust(false);
+    setEditedAssets((prev) => prev.map((a, i) => i === previewIdx ? { ...a, uri } : a));
+  };
 
   const selectRatio = async (idx) => {
     setCropRatioIdx(idx);
@@ -330,6 +357,47 @@ function EditStep({ assets, onNext, onBack, insets }) {
         </>
       )}
 
+      {/* Reorder + adjust controls for multi-photo */}
+      {!isVideo && editedAssets.length > 1 && (
+        <View style={[s.reorderRow, { backgroundColor: colors.surface, borderTopColor: colors.border }]}>
+          <TouchableOpacity
+            style={[s.reorderBtn, previewIdx === 0 && s.reorderBtnDisabled]}
+            onPress={moveLeft}
+            disabled={previewIdx === 0}
+          >
+            <Feather name="arrow-left" size={16} color={previewIdx === 0 ? colors.textMuted : colors.text} />
+            <Text style={[s.reorderBtnText, { color: previewIdx === 0 ? colors.textMuted : colors.text }]}>Move</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[s.reorderBtn, { backgroundColor: colors.card }]}
+            onPress={() => setShowAdjust(true)}
+          >
+            <Feather name="crop" size={16} color={colors.text} />
+            <Text style={[s.reorderBtnText, { color: colors.text }]}>Adjust</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[s.reorderBtn, previewIdx >= editedAssets.length - 1 && s.reorderBtnDisabled]}
+            onPress={moveRight}
+            disabled={previewIdx >= editedAssets.length - 1}
+          >
+            <Text style={[s.reorderBtnText, { color: previewIdx >= editedAssets.length - 1 ? colors.textMuted : colors.text }]}>Move</Text>
+            <Feather name="arrow-right" size={16} color={previewIdx >= editedAssets.length - 1 ? colors.textMuted : colors.text} />
+          </TouchableOpacity>
+        </View>
+      )}
+      {/* Adjust button for single photo */}
+      {!isVideo && editedAssets.length === 1 && (
+        <View style={[s.reorderRow, { backgroundColor: colors.surface, borderTopColor: colors.border }]}>
+          <TouchableOpacity
+            style={[s.reorderBtn, { backgroundColor: colors.card }]}
+            onPress={() => setShowAdjust(true)}
+          >
+            <Feather name="move" size={16} color={colors.text} />
+            <Text style={[s.reorderBtnText, { color: colors.text }]}>Adjust framing</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
       <View style={[s.editFooter, { paddingBottom: insets.bottom + 8, backgroundColor: colors.surface, borderTopColor: colors.border }]}>
         <TouchableOpacity onPress={onBack} style={s.backBtn}>
           <Feather name="arrow-left" size={20} color={colors.text} />
@@ -342,6 +410,14 @@ function EditStep({ assets, onNext, onBack, insets }) {
           <Text style={[s.nextBtnText, { color: colors.accentText }]}>Caption  →</Text>
         </TouchableOpacity>
       </View>
+
+      <PhotoAdjustModal
+        visible={showAdjust}
+        uri={editedAssets[previewIdx]?.uri}
+        cropRatio={CROP_RATIOS[cropRatioIdx].ratio}
+        onConfirm={applyAdjust}
+        onCancel={() => setShowAdjust(false)}
+      />
     </View>
   );
 }
@@ -354,8 +430,19 @@ function CaptionStep({ assets, editedAssets, filterIdx, trimmedVideo, onBack, on
   const [caption, setCaption] = useState('');
   const [collections, setCollections] = useState([]);
   const [selectedCollection, setSelectedCollection] = useState(null);
+  const [tags, setTags] = useState([]);
+  const [tagInput, setTagInput] = useState('');
   const toast = useToast();
   const isVideo = assets[0]?.mediaType === 'video';
+
+  const addTag = () => {
+    const t = tagInput.trim().replace(/^#/, '').replace(/\s+/g, '_');
+    if (!t || tags.includes(t) || tags.length >= 10) return;
+    setTags((prev) => [...prev, t]);
+    setTagInput('');
+  };
+
+  const removeTag = (t) => setTags((prev) => prev.filter((x) => x !== t));
 
   useEffect(() => { fetchCollections().then(setCollections).catch(() => {}); }, []);
 
@@ -382,6 +469,7 @@ function CaptionStep({ assets, editedAssets, filterIdx, trimmedVideo, onBack, on
         uris: finalAssets.map((a) => a.uri),
         caption: caption.trim(),
         collectionId: selectedCollection,
+        tags,
       });
     }
     toast?.info('Posting in the background…');
@@ -424,6 +512,33 @@ function CaptionStep({ assets, editedAssets, filterIdx, trimmedVideo, onBack, on
           maxLength={500}
         />
       </View>
+
+      <Text style={[s.sectionLabel, { color: colors.textSub }]}>Tags (optional)</Text>
+      <View style={s.tagInputRow}>
+        <TextInput
+          style={[s.tagInput, { backgroundColor: colors.card, color: colors.text, borderColor: colors.border }]}
+          placeholder="#tag"
+          placeholderTextColor={colors.textSub}
+          value={tagInput}
+          onChangeText={setTagInput}
+          onSubmitEditing={addTag}
+          returnKeyType="done"
+          maxLength={30}
+          autoCapitalize="none"
+        />
+        <TouchableOpacity style={[s.tagAddBtn, { backgroundColor: colors.accent }]} onPress={addTag}>
+          <Text style={[s.tagAddBtnText, { color: colors.accentText }]}>Add</Text>
+        </TouchableOpacity>
+      </View>
+      {tags.length > 0 && (
+        <View style={s.tagsRow}>
+          {tags.map((t) => (
+            <TouchableOpacity key={t} style={[s.tagChip, { backgroundColor: colors.accent }]} onPress={() => removeTag(t)}>
+              <Text style={[s.tagChipText, { color: colors.accentText }]}>#{t} ×</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
 
       {pickableCollections.length > 0 && (
         <>
@@ -599,6 +714,12 @@ const s = StyleSheet.create({
   durBadge: { position: 'absolute', bottom: 12, right: 12, backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4 },
   durText: { color: '#fff', fontSize: 12, fontWeight: '600' },
 
+  // Reorder / adjust row
+  reorderRow: { flexDirection: 'row', justifyContent: 'space-around', alignItems: 'center', paddingVertical: 10, paddingHorizontal: 16, borderTopWidth: 1, gap: 8 },
+  reorderBtn: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingVertical: 7, paddingHorizontal: 14, borderRadius: 8 },
+  reorderBtnText: { fontSize: 13 },
+  reorderBtnDisabled: { opacity: 0.35 },
+
   // Edit tabs
   editTabRow: { flexDirection: 'row', borderBottomWidth: 1 },
   editTab: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 11 },
@@ -634,6 +755,14 @@ const s = StyleSheet.create({
     borderWidth: 1, borderRadius: 8, padding: 10, marginBottom: 12,
   },
   shareHintText: { fontSize: 12, lineHeight: 17, flex: 1 },
+  tagInputRow: { flexDirection: 'row', gap: 8, marginBottom: 8 },
+  tagInput: { flex: 1, borderWidth: 1, borderRadius: 8, padding: 10, fontSize: 14 },
+  tagAddBtn: { borderRadius: 8, paddingVertical: 10, paddingHorizontal: 16, alignItems: 'center', justifyContent: 'center' },
+  tagAddBtnText: { fontWeight: '700', fontSize: 14 },
+  tagsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 },
+  tagChip: { borderRadius: 16, paddingVertical: 4, paddingHorizontal: 10 },
+  tagChipText: { fontSize: 12, fontWeight: '600' },
+
   colChip: { borderWidth: 1, borderRadius: 20, paddingVertical: 7, paddingHorizontal: 14, marginRight: 8 },
   colChipText: { fontSize: 13 },
   captionFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 8 },

@@ -125,6 +125,13 @@ router.post('/posts', auth, (req, res, next) => {
   }
 
   const caption = req.body.caption || '';
+  const tagsJson = (() => {
+    try {
+      const raw = req.body.tags || '[]';
+      const t = JSON.parse(raw);
+      return JSON.stringify(Array.isArray(t) ? t.slice(0, 20).map(String) : []);
+    } catch { return '[]'; }
+  })();
 
   if (videoClipFiles.length > 0) {
     // Multi-clip encrypted video post
@@ -133,7 +140,7 @@ router.post('/posts', auth, (req, res, next) => {
       thumbFilename: thumbClipFiles[i]?.filename || null,
       durationSecs: req.body[`clipDuration${i}`] ? Number(req.body[`clipDuration${i}`]) : null,
     }));
-    const post = db.insertPost([], req.member.name, caption, 'video', null, null, null, [], [], videoClips);
+    const post = db.insertPost([], req.member.name, caption, 'video', null, null, null, [], [], videoClips, tagsJson);
     afterPostCreate(req, post);
     return res.json(withBase(req, post));
   } else if (videos.length) {
@@ -141,7 +148,7 @@ router.post('/posts', auth, (req, res, next) => {
     const videoFile = videos[0];
     const thumbFile = thumbnails[0] || null;
     const durationSecs = req.body.durationSecs ? Number(req.body.durationSecs) : null;
-    const post = db.insertPost([], req.member.name, caption, 'video', videoFile.filename, thumbFile ? thumbFile.filename : null, durationSecs);
+    const post = db.insertPost([], req.member.name, caption, 'video', videoFile.filename, thumbFile ? thumbFile.filename : null, durationSecs, [], [], [], tagsJson);
     afterPostCreate(req, post);
     return res.json(withBase(req, post));
   } else {
@@ -149,7 +156,7 @@ router.post('/posts', auth, (req, res, next) => {
     const filenames = photos.map((f) => f.filename);
     const feedFilenames = feedPhotos.map((f) => f.filename);
     const thumbFilenames = thumbPhotos.map((f) => f.filename);
-    const post = db.insertPost(filenames, req.member.name, caption, 'image', null, null, null, feedFilenames, thumbFilenames);
+    const post = db.insertPost(filenames, req.member.name, caption, 'image', null, null, null, feedFilenames, thumbFilenames, [], tagsJson);
     afterPostCreate(req, post);
     res.json(withBase(req, post));
   }
@@ -165,7 +172,14 @@ router.post('/posts/from-upload', auth, (req, res) => {
   if (!fs.existsSync(path.join(STORAGE_DIR, safeVideo))) {
     return res.status(400).json({ error: 'Uploaded file not found' });
   }
-  const post = db.insertPost([], req.member.name, caption || '', 'video', safeVideo, safeThumb, durationSecs ? Number(durationSecs) : null);
+  const fromUploadTagsJson = (() => {
+    try {
+      const raw = req.body.tags || '[]';
+      const t = JSON.parse(raw);
+      return JSON.stringify(Array.isArray(t) ? t.slice(0, 20).map(String) : []);
+    } catch { return '[]'; }
+  })();
+  const post = db.insertPost([], req.member.name, caption || '', 'video', safeVideo, safeThumb, durationSecs ? Number(durationSecs) : null, [], [], [], fromUploadTagsJson);
   afterPostCreate(req, post);
   res.json(withBase(req, post));
 });
@@ -211,25 +225,84 @@ router.post('/posts/:id/save', auth, (req, res) => {
 });
 
 router.post('/posts/:id/comments', auth, (req, res) => {
-  const { text, gifUrl, imageX, imageY, imageIndex } = req.body;
+  const { text, gifUrl, imageX, imageY, imageIndex, replyToId } = req.body;
   if (!text?.trim() && !gifUrl) return res.status(400).json({ error: 'Text or GIF required' });
   if (text && String(text).length > 2000) return res.status(400).json({ error: 'Comment too long (max 2000 chars)' });
   try {
     const postId = Number(req.params.id);
     const me = req.member.name;
+    const safeReplyToId = replyToId ? Number(replyToId) : null;
     const comment = db.addComment(
       postId, me,
       (text || '').trim(), gifUrl || null,
       imageX != null ? Number(imageX) : null,
       imageY != null ? Number(imageY) : null,
       imageIndex != null ? Number(imageIndex) : 0,
+      safeReplyToId,
     );
+
+    const notified = new Set([me.toLowerCase()]);
+
+    // Notify post author
     const postAuthor = db.getPostAuthor(postId);
-    if (postAuthor && postAuthor.toLowerCase() !== me.toLowerCase()) {
+    if (postAuthor && !notified.has(postAuthor.toLowerCase())) {
+      notified.add(postAuthor.toLowerCase());
       db.addNotification(postAuthor, 'comment', me, postId);
       push.notify([postAuthor], 'FamilyVault', `${me} commented on your post`, { type: 'comment', postId });
     }
+
+    // Notify the comment being replied to
+    if (safeReplyToId) {
+      const replyTarget = db.getCommentAuthor(safeReplyToId);
+      if (replyTarget && !notified.has(replyTarget.toLowerCase())) {
+        notified.add(replyTarget.toLowerCase());
+        db.addNotification(replyTarget, 'reply', me, postId);
+        push.notify([replyTarget], 'FamilyVault', `${me} replied to your comment`, { type: 'reply', postId });
+      }
+    }
+
+    // Notify @mentions in comment text
+    if (text) {
+      const mentioned = [...String(text).matchAll(/@(\w+)/g)].map(m => m[1].toLowerCase());
+      const allMembers = db.getMembers().map(m => ({ name: m.name, lower: m.name.toLowerCase() }));
+      for (const handle of [...new Set(mentioned)]) {
+        const member = allMembers.find(m => m.lower === handle);
+        if (member && !notified.has(member.lower)) {
+          notified.add(member.lower);
+          db.addNotification(member.name, 'mention', me, postId);
+          push.notify([member.name], 'FamilyVault', `${me} mentioned you in a comment`, { type: 'mention', postId });
+        }
+      }
+    }
+
+    // Notify previous commenters ("activity on a post you commented on")
+    const prevCommenters = db.getPostCommenters(postId, me);
+    for (const commenter of prevCommenters) {
+      if (!notified.has(commenter.toLowerCase())) {
+        notified.add(commenter.toLowerCase());
+        db.addNotification(commenter, 'comment_activity', me, postId);
+      }
+    }
+
     res.json(comment);
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+router.post('/posts/:id/comments/:commentId/react', auth, (req, res) => {
+  const { emoji } = req.body;
+  if (!emoji || typeof emoji !== 'string' || emoji.length > 8) return res.status(400).json({ error: 'emoji required' });
+  try {
+    const commentId = Number(req.params.commentId);
+    const me = req.member.name;
+    const reactions = db.toggleCommentReaction(commentId, me, emoji);
+    // Notify comment author if they're not the reactor
+    const commentAuthor = db.getCommentAuthor(commentId);
+    if (commentAuthor && commentAuthor.toLowerCase() !== me.toLowerCase()) {
+      const postId = Number(req.params.id);
+      db.addNotification(commentAuthor, 'comment_reaction', me, postId);
+      push.notify([commentAuthor], 'FamilyVault', `${me} reacted ${emoji} to your comment`, { type: 'comment_reaction', postId });
+    }
+    res.json({ reactions });
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 

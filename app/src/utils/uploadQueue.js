@@ -76,14 +76,14 @@ function enqueue(kind, payload) {
   return item.id;
 }
 
-export const enqueuePhotos = ({ uris, caption = '', collectionId = null }) =>
-  enqueue('photos', { uris, caption, collectionId, previewUri: uris[0] });
+export const enqueuePhotos = ({ uris, caption = '', collectionId = null, tags = [] }) =>
+  enqueue('photos', { uris, caption, collectionId, tags, previewUri: uris[0] });
 
 export const enqueueVideo = ({ videoUri, durationMs = null, caption = '', collectionId = null }) =>
   enqueue('video', { videoUri, durationMs, caption, collectionId, previewUri: null });
 
-export const enqueueStory = ({ imageUri = null, videoUri = null, durationMs = null, durationHours = 24, caption = '' }) =>
-  enqueue('story', { imageUri, videoUri, durationMs, durationHours, caption, previewUri: imageUri });
+export const enqueueStory = ({ imageUri = null, videoUri = null, durationMs = null, durationHours = 24, caption = '', audienceJson = 'all' }) =>
+  enqueue('story', { imageUri, videoUri, durationMs, durationHours, caption, audienceJson, previewUri: imageUri });
 
 async function process(id) {
   const item = items.find((i) => i.id === id);
@@ -96,7 +96,7 @@ async function process(id) {
 
     let result = null;
     if (item.kind === 'photos') {
-      result = await uploadPhotos(item.payload.uris, item.payload.caption, item.payload.collectionId, onProgress);
+      result = await uploadPhotos(item.payload.uris, item.payload.caption, item.payload.collectionId, onProgress, item.payload.tags || []);
     } else if (item.kind === 'video') {
       result = await processVideo(item, onProgress, false);
     } else if (item.kind === 'story') {
@@ -105,7 +105,7 @@ async function process(id) {
       } else {
         onProgress(0.05, 'Encrypting');
         result = await uploadStory(item.payload.imageUri, item.payload.durationHours, item.payload.caption, null,
-          (p, stage) => onProgress(0.1 + p * 0.9, stage));
+          (p, stage) => onProgress(0.1 + p * 0.9, stage), item.payload.audienceJson || 'all');
       }
     }
     const finished = items.find((i) => i.id === id);
@@ -119,7 +119,7 @@ async function process(id) {
 }
 
 async function processVideo(item, onProgress, isStory) {
-  const { videoUri, durationMs, caption, collectionId, durationHours } = item.payload;
+  const { videoUri, durationMs, caption, collectionId, durationHours, audienceJson } = item.payload;
   const encBinFn = getEncryptImgBinFn();
   if (!encBinFn) throw new Error('Vault is locked. Log in and tap Retry.');
 
@@ -142,7 +142,7 @@ async function processVideo(item, onProgress, isStory) {
     const durationSecs = durationMs ? Math.round(durationMs / 1000) : null;
     const mapUp = (p, stage) => onProgress(0.25 + p * 0.75, stage);
     const result = isStory
-      ? await uploadStory(null, durationHours, caption, [{ encVideoUri, encThumbUri, durationSecs }], mapUp)
+      ? await uploadStory(null, durationHours, caption, [{ encVideoUri, encThumbUri, durationSecs }], mapUp, audienceJson || 'all')
       : await uploadEncryptedVideo(encVideoUri, encThumbUri, caption, durationSecs, collectionId, mapUp);
     try {
       const { deleteFile } = require('react-native-video-trim');

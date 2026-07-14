@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, Image, Alert,
   TextInput, ScrollView, KeyboardAvoidingView, Platform,
@@ -9,6 +9,7 @@ import { Video, ResizeMode } from 'expo-av';
 import { Feather } from '@expo/vector-icons';
 import VideoTrim, { showEditor } from 'react-native-video-trim';
 import { enqueueStory } from '../utils/uploadQueue';
+import { fetchFamilyMembers, getMemberName } from '../utils/api';
 import { useTheme } from '../context/ThemeContext';
 import { useToast } from '../context/ToastContext';
 
@@ -30,7 +31,15 @@ export default function StoryCreateScreen({ navigation }) {
   const [trimmedVideo, setTrimmedVideo] = useState(null); // { uri, durationMs }
   const [duration, setDuration] = useState(24);
   const [caption, setCaption] = useState('');
+  const [audienceMode, setAudienceMode] = useState('all'); // 'all' | 'select'
+  const [members, setMembers] = useState([]);
+  const [selectedMembers, setSelectedMembers] = useState(new Set());
+  const me = getMemberName();
   const trimSubs = useRef([]);
+
+  useEffect(() => {
+    fetchFamilyMembers().then((m) => setMembers(m.filter((x) => x.name !== me))).catch(() => {});
+  }, []);
   const insets = useSafeAreaInsets();
 
   const cleanupTrimSubs = () => {
@@ -85,19 +94,33 @@ export default function StoryCreateScreen({ navigation }) {
 
   // Optimistic posting: the background queue encrypts + uploads; the stories
   // strip shows a "Posting…" ring (or tap-to-retry on failure)
+  const toggleMember = (name) => setSelectedMembers((prev) => {
+    const next = new Set(prev);
+    if (next.has(name)) next.delete(name); else next.add(name);
+    return next;
+  });
+
+  const getAudienceJson = () => {
+    if (audienceMode === 'all') return 'all';
+    const list = [me, ...Array.from(selectedMembers)];
+    return JSON.stringify(list);
+  };
+
   const postedRef = useRef(false);
   const handlePost = () => {
     if (postedRef.current) return; // instant button — guard double-taps
     postedRef.current = true;
+    const audienceJson = getAudienceJson();
     if (trimmedVideo) {
       enqueueStory({
         videoUri: trimmedVideo.uri,
         durationMs: trimmedVideo.durationMs,
         durationHours: duration,
         caption: caption.trim(),
+        audienceJson,
       });
     } else if (image) {
-      enqueueStory({ imageUri: image, durationHours: duration, caption: caption.trim() });
+      enqueueStory({ imageUri: image, durationHours: duration, caption: caption.trim(), audienceJson });
     } else {
       return;
     }
@@ -188,6 +211,44 @@ export default function StoryCreateScreen({ navigation }) {
         </View>
 
         <View style={styles.section}>
+          <Text style={[styles.sectionLabel, { color: colors.textSub }]}>Visible to</Text>
+          <View style={styles.audienceRow}>
+            <TouchableOpacity
+              style={[styles.audienceChip, { borderColor: colors.border }, audienceMode === 'all' && { backgroundColor: colors.accent, borderColor: colors.accent }]}
+              onPress={() => setAudienceMode('all')}
+            >
+              <Text style={[styles.chipText, { color: colors.textSub }, audienceMode === 'all' && { color: colors.accentText, fontWeight: '600' }]}>Everyone</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.audienceChip, { borderColor: colors.border }, audienceMode === 'select' && { backgroundColor: colors.accent, borderColor: colors.accent }]}
+              onPress={() => setAudienceMode('select')}
+            >
+              <Text style={[styles.chipText, { color: colors.textSub }, audienceMode === 'select' && { color: colors.accentText, fontWeight: '600' }]}>
+                {audienceMode === 'select' && selectedMembers.size > 0 ? `${selectedMembers.size} selected` : 'Choose members'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+          {audienceMode === 'select' && members.length > 0 && (
+            <View style={[styles.memberList, { borderColor: colors.border, backgroundColor: colors.card }]}>
+              {members.map((m) => {
+                const on = selectedMembers.has(m.name);
+                return (
+                  <TouchableOpacity
+                    key={m.id}
+                    style={[styles.memberRow, { borderBottomColor: colors.border }]}
+                    onPress={() => toggleMember(m.name)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[styles.memberName, { color: colors.text }]}>{m.name}</Text>
+                    <Feather name={on ? 'check-circle' : 'circle'} size={20} color={on ? colors.accent : colors.textSub} />
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          )}
+        </View>
+
+        <View style={styles.section}>
           <Text style={[styles.sectionLabel, { color: colors.textSub }]}>Expires after</Text>
           <View style={styles.durationRow}>
             {DURATIONS.map((d) => (
@@ -240,6 +301,11 @@ const styles = StyleSheet.create({
   durationRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   chip: { borderWidth: 1, borderRadius: 20, paddingVertical: 7, paddingHorizontal: 14 },
   chipText: { fontSize: 13 },
+  audienceRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
+  audienceChip: { borderWidth: 1, borderRadius: 20, paddingVertical: 7, paddingHorizontal: 14 },
+  memberList: { borderWidth: 1, borderRadius: 8, marginTop: 8, overflow: 'hidden' },
+  memberRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 10, paddingHorizontal: 14, borderBottomWidth: StyleSheet.hairlineWidth },
+  memberName: { fontSize: 14 },
   footer: { padding: 16, borderTopWidth: 1, marginTop: 'auto', flexDirection: 'row' },
   postBtn: { flex: 1, borderRadius: 8, paddingVertical: 14, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' },
   postBtnDisabled: { opacity: 0.3 },
